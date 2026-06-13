@@ -1,0 +1,37 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Default catch-all security posture
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Reuseable global helpers for access controls
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && 
+             request.auth.token.email == "maurya.rahul6820@gmail.com" && 
+             request.auth.token.email_verified == true;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    // 1. PRODUCTS COLLECTION
+    match /products/{productId} {
+      allow get, list: if true; // Public viewable
+      allow create, update, delete: if isAdmin() && isValidId(productId);
+    }
+
+    // 2. REQUESTS COLLECTION
+    match /requests/{requestId} {
+      allow create: if true; // Anyone can submit an interest reservation form
+      allow get, list, update, delete: if isAdmin() && isValidId(requestId);
+    }
+  }
+}

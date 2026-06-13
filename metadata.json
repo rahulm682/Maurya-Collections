@@ -1,0 +1,6 @@
+{
+  "name": "Maurya Collections",
+  "description": "A luxury boutique mobile routelines ledger and real-time customer clothing reservation system built mobile-first for weekly village collections.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

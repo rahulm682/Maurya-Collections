@@ -1,0 +1,57 @@
+{
+  "entities": {
+    "Product": {
+      "title": "Product",
+      "description": "Stock items offered for mobile routes",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "gender": { "type": "string", "enum": ["Boys", "Girls", "Unisex"] },
+        "ageGroup": { "type": "string", "enum": ["Baby (0-2)", "Toddler (2-5)", "Kids (5-12)", "Teens (12-18)"] },
+        "category": { "type": "string" },
+        "priceMin": { "type": "number" },
+        "priceMax": { "type": "number" },
+        "stock": { "type": "number" },
+        "reserved": { "type": "number" },
+        "likes": { "type": "number" },
+        "sizes": { "type": "array" },
+        "colors": { "type": "array" },
+        "images": { "type": "array" },
+        "imageColor": { "type": "string" }
+      },
+      "required": ["id", "name", "gender", "ageGroup", "category", "priceMin", "priceMax", "stock"]
+    },
+    "CustomerRequest": {
+      "title": "CustomerRequest",
+      "description": "Interest and booking forms entered by public village customers",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "customerName": { "type": "string" },
+        "phone": { "type": "string" },
+        "email": { "type": "string" },
+        "village": { "type": "string" },
+        "productId": { "type": "string" },
+        "productName": { "type": "string" },
+        "requestedSize": { "type": "string" },
+        "requestedColor": { "type": "string" },
+        "requestedAgeGroup": { "type": "string" },
+        "dateRequested": { "type": "string" },
+        "status": { "type": "string", "enum": ["Pending", "Allocated", "Delivered", "Cancelled"] },
+        "notes": { "type": "string" }
+      },
+      "required": ["id", "customerName", "phone", "email", "village", "productId", "requestedSize", "requestedColor", "status"]
+    }
+  },
+  "firestore": {
+    "/products/{productId}": {
+      "schema": "Product",
+      "description": "Collection of clothing items tracked in mobile routes database."
+    },
+    "/requests/{requestId}": {
+      "schema": "CustomerRequest",
+      "description": "Weekly delivery bookings and public interest queries cataloged in real-time."
+    }
+  }
+}
