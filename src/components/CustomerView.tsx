@@ -54,6 +54,7 @@ export default function CustomerView({
     if (!Array.isArray(products)) return [];
     return products.filter((p) => {
       if (!p) return false;
+      if (p.status === 'unlisted') return false; // Hide seasonal/unlisted styles
       const matchSearch = (p.name || '').toLowerCase().includes(searchQuery.toLowerCase()) || 
                           (p.category || '').toLowerCase().includes(searchQuery.toLowerCase());
       const matchGender = selectedGender === 'All' || p.gender === selectedGender;
@@ -213,9 +214,6 @@ export default function CustomerView({
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
           {filteredProducts.map((p) => {
             const isLiked = likedProductIds.includes(p.id);
-            const remainingLocalStock = p.stock - p.reserved;
-            const isOutStock = p.stock === 0;
-            const isFullyReserved = p.stock > 0 && remainingLocalStock <= 0;
 
             return (
               <div

@@ -39,12 +39,11 @@ export default function App() {
             sizes: Array.isArray(p.sizes) ? p.sizes : (typeof p.sizes === 'string' ? p.sizes.split(',').map((s: string) => s.trim()).filter(Boolean) : []),
             colors: Array.isArray(p.colors) ? p.colors : (typeof p.colors === 'string' ? p.colors.split(',').map((c: string) => c.trim()).filter(Boolean) : []),
             images: Array.isArray(p.images) ? p.images : (typeof p.images === 'string' ? p.images.split(',').map((i: string) => i.trim()).filter(Boolean) : (p.image ? [p.image] : [])),
-            stock: typeof p.stock === 'number' ? p.stock : 0,
-            reserved: typeof p.reserved === 'number' ? p.reserved : 0,
             likes: typeof p.likes === 'number' ? p.likes : 0,
             priceMin: typeof p.priceMin === 'number' ? p.priceMin : (typeof p.price === 'number' ? p.price : 0),
             priceMax: typeof p.priceMax === 'number' ? p.priceMax : (typeof p.price === 'number' ? p.price : 0),
             category: p.category || 'Apparel',
+            status: p.status === 'unlisted' ? 'unlisted' : 'listed',
           }));
           setProducts(sanitized);
         } else {
@@ -197,12 +196,12 @@ export default function App() {
   };
 
   // 3. Admin adds a whole new clothing style
-  const handleAddProduct = (newProd: Omit<Product, 'id' | 'likes' | 'reserved'>) => {
+  const handleAddProduct = (newProd: Omit<Product, 'id' | 'likes'>) => {
     const product: Product = {
       ...newProd,
       id: `p-${Date.now()}`,
       likes: 0,
-      reserved: 0
+      status: 'listed'
     };
 
     const updatedProducts = [product, ...products];
@@ -210,61 +209,32 @@ export default function App() {
     triggerToast(`Created style "${newProd.name}" successfully!`);
   };
 
-  // 4. Admin adjusts loaded truck quantities
-  const handleUpdateStock = (productId: string, newStock: number) => {
+  // 4. Admin toggles if an item is listed or unlisted
+  const handleToggleProductStatus = (productId: string, newStatus: 'listed' | 'unlisted') => {
     const updatedProducts = products.map((p) => {
       if (p.id === productId) {
-        if (newStock < p.reserved) {
-          triggerToast(`Cannot reduce stock below ${p.reserved} active customer holds!`, 'info');
-          return p;
-        }
-        return { ...p, stock: newStock };
+        return { ...p, status: newStatus };
       }
       return p;
     });
     saveProductsToStorage(updatedProducts);
+    triggerToast(`Product listing status set to ${newStatus}`);
   };
 
-  // 5. Admin updates reservation status pipeline
+  // 5. Admin completely deletes product from inventory
+  const handleDeleteProduct = (productId: string) => {
+    const updatedProducts = products.filter((p) => p.id !== productId);
+    saveProductsToStorage(updatedProducts);
+    triggerToast('Product style fully deleted from inventory ledger.');
+  };
+
+  // 6. Admin updates reservation status pipeline
   const handleUpdateRequestStatus = (requestId: string, newStatus: CustomerRequest['status']) => {
     const targetRequest = requests.find(r => r.id === requestId);
     if (!targetRequest) return;
 
     const oldStatus = targetRequest.status;
     if (oldStatus === newStatus) return;
-
-    const updatedProducts = products.map((prod) => {
-      if (prod.id === targetRequest.productId) {
-        let newReserved = prod.reserved;
-        let newStock = prod.stock;
-
-        if (newStatus === 'Delivered') {
-          if (oldStatus === 'Allocated') {
-            newReserved = Math.max(0, newReserved - 1);
-          }
-          newStock = Math.max(0, newStock - 1); // delivered item leaves the physical truck!
-        }
-        else if (oldStatus === 'Delivered') {
-          newStock = newStock + 1; // returned to truck
-          if (newStatus === 'Allocated') {
-            newReserved = newReserved + 1;
-          }
-        }
-        else if (oldStatus === 'Pending' && newStatus === 'Allocated') {
-          newReserved = newReserved + 1;
-        }
-        else if (oldStatus === 'Allocated' && (newStatus === 'Pending' || newStatus === 'Cancelled')) {
-          newReserved = Math.max(0, newReserved - 1);
-        }
-
-        return {
-          ...prod,
-          reserved: newReserved,
-          stock: newStock
-        };
-      }
-      return prod;
-    });
 
     const updatedRequests = requests.map((r) => {
       if (r.id === requestId) {
@@ -273,7 +243,6 @@ export default function App() {
       return r;
     });
 
-    saveProductsToStorage(updatedProducts);
     saveRequestsToStorage(updatedRequests);
     triggerToast(`Order for ${targetRequest.customerName} marked ${newStatus}`);
   };
@@ -283,24 +252,7 @@ export default function App() {
   };
 
   const handleDeleteRequest = (requestId: string) => {
-    const targetRequest = requests.find(r => r.id === requestId);
-    if (!targetRequest) return;
-
-    let updatedProducts = [...products];
-    if (targetRequest.status === 'Allocated') {
-      updatedProducts = products.map((prod) => {
-        if (prod.id === targetRequest.productId) {
-          return {
-            ...prod,
-            reserved: Math.max(0, prod.reserved - 1)
-          };
-        }
-        return prod;
-      });
-    }
-
     const updatedRequests = requests.filter(r => r.id !== requestId);
-    saveProductsToStorage(updatedProducts);
     saveRequestsToStorage(updatedRequests);
     triggerToast(`Deleted request from collections stream`);
   };
@@ -357,10 +309,6 @@ export default function App() {
                   onChange={(e) => setLoginPassword(e.target.value)}
                   className="block w-full rounded-lg border border-slate-205 py-1.5 px-2.5 text-xs text-slate-900 bg-slate-50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-slate-950"
                 />
-                <div className="mt-1 flex justify-between items-center text-[8px] font-mono select-all">
-                  <span className="text-slate-400">Hint pass:</span>
-                  <span className="text-slate-500 bg-slate-100 px-1 rounded">Rahul@1234</span>
-                </div>
               </div>
 
               <button
@@ -403,7 +351,8 @@ export default function App() {
               requests={requests}
               villages={villages}
               onAddProduct={handleAddProduct}
-              onUpdateStock={handleUpdateStock}
+              onToggleProductStatus={handleToggleProductStatus}
+              onDeleteProduct={handleDeleteProduct}
               onUpdateRequestStatus={handleUpdateRequestStatus}
               onAllocateRequestStock={handleAllocateRequestStock}
               onDeleteRequest={handleDeleteRequest}

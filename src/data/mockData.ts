@@ -16,8 +16,6 @@ export const INITIAL_PRODUCTS: Product[] = [
     category: 'Frocks & Dresses',
     priceMin: 550,
     priceMax: 680,
-    stock: 8,
-    reserved: 2,
     likes: 42,
     sizes: ['6-7Y', '8-9Y', '10-12Y'],
     colors: ['Pink', 'Rose Gold', 'Peach'],
@@ -25,7 +23,8 @@ export const INITIAL_PRODUCTS: Product[] = [
       'https://images.unsplash.com/photo-1622290291468-a28f7a7ac6a8?w=600&auto=format&fit=crop&q=80',
       'https://images.unsplash.com/photo-1518831959646-742c3a14ebf7?w=600&auto=format&fit=crop&q=80'
     ],
-    imageColor: 'bg-rose-100 text-rose-700'
+    imageColor: 'bg-rose-100 text-rose-700',
+    status: 'listed'
   },
   {
     id: 'p2',
@@ -35,8 +34,6 @@ export const INITIAL_PRODUCTS: Product[] = [
     category: 'Ethnic Wear',
     priceMin: 1200,
     priceMax: 1450,
-    stock: 3,
-    reserved: 1,
     likes: 56,
     sizes: ['13-14Y', '15-16Y', '17-18Y'],
     colors: ['Ruby Red', 'Maroon', 'Golden Green'],
@@ -44,7 +41,8 @@ export const INITIAL_PRODUCTS: Product[] = [
       'https://images.unsplash.com/photo-1540479859555-17af45c78602?w=600&auto=format&fit=crop&q=80',
       'https://images.unsplash.com/photo-1519457431-44ccd64a579b?w=600&auto=format&fit=crop&q=80'
     ],
-    imageColor: 'bg-purple-100 text-purple-700'
+    imageColor: 'bg-purple-100 text-purple-700',
+    status: 'listed'
   },
   {
     id: 'p3',
@@ -54,8 +52,6 @@ export const INITIAL_PRODUCTS: Product[] = [
     category: 'Rompers & Sets',
     priceMin: 320,
     priceMax: 410,
-    stock: 12,
-    reserved: 0,
     likes: 18,
     sizes: ['0-6M', '6-12M', '12-18M'],
     colors: ['Mint', 'Lemon Yellow', 'Sky Blue'],
@@ -63,7 +59,8 @@ export const INITIAL_PRODUCTS: Product[] = [
       'https://images.unsplash.com/photo-1503919545889-aef636e10ad4?w=600&auto=format&fit=crop&q=80',
       'https://images.unsplash.com/photo-1622290291468-a28f7a7ac6a8?w=600&auto=format&fit=crop&q=80'
     ],
-    imageColor: 'bg-teal-100 text-teal-700'
+    imageColor: 'bg-teal-100 text-teal-700',
+    status: 'listed'
   },
   {
     id: 'p4',
@@ -73,8 +70,6 @@ export const INITIAL_PRODUCTS: Product[] = [
     category: 'Jumpsuits',
     priceMin: 450,
     priceMax: 499,
-    stock: 5,
-    reserved: 1,
     likes: 29,
     sizes: ['2-3Y', '3-4Y', '4-5Y'],
     colors: ['Sunshine Yellow', 'Bright Orange', 'Beige'],
@@ -82,7 +77,8 @@ export const INITIAL_PRODUCTS: Product[] = [
       'https://images.unsplash.com/photo-1519457431-44ccd64a579b?w=600&auto=format&fit=crop&q=80',
       'https://images.unsplash.com/photo-1518831959646-742c3a14ebf7?w=600&auto=format&fit=crop&q=80'
     ],
-    imageColor: 'bg-amber-100 text-amber-700'
+    imageColor: 'bg-amber-100 text-amber-700',
+    status: 'listed'
   },
   {
     id: 'p5',
@@ -92,15 +88,14 @@ export const INITIAL_PRODUCTS: Product[] = [
     category: 'T-Shirts & Tops',
     priceMin: 280,
     priceMax: 350,
-    stock: 15,
-    reserved: 3,
     likes: 15,
     sizes: ['5-6Y', '7-8Y', '9-10Y', '11-12Y'],
     colors: ['Athletic Blue', 'Neon Green', 'Crimson Red'],
     images: [
       'https://images.unsplash.com/photo-1503919545889-aef636e10ad4?w=600&auto=format&fit=crop&q=80'
     ],
-    imageColor: 'bg-blue-100 text-blue-700'
+    imageColor: 'bg-blue-100 text-blue-700',
+    status: 'listed'
   },
   {
     id: 'p6',
@@ -110,15 +105,14 @@ export const INITIAL_PRODUCTS: Product[] = [
     category: 'Ethnic Wear',
     priceMin: 1100,
     priceMax: 1390,
-    stock: 2,
-    reserved: 1,
     likes: 38,
     sizes: ['6-7Y', '8-9Y', '10-12Y'],
     colors: ['Royal Blue', 'Golden Ivory'],
     images: [
       'https://images.unsplash.com/photo-1540479859555-17af45c78602?w=600&auto=format&fit=crop&q=80'
     ],
-    imageColor: 'bg-yellow-100 text-yellow-800'
+    imageColor: 'bg-yellow-100 text-yellow-800',
+    status: 'listed'
   }
 ];
 

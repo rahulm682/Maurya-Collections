@@ -9,13 +9,12 @@ export interface Product {
   category: string;
   priceMin: number;      // Price range minimum
   priceMax: number;      // Price range maximum
-  stock: number;         // Total physical stock on hand
-  reserved: number;      // Allocated/reserved items for specific customers
   likes: number;         // Customer interest indicator
   sizes: string[];       // Available sizes (e.g., '6-12M', '2T', '10Y')
   colors: string[];      // Available colors (e.g., 'Pink', 'Yellow', 'Blue')
   images: string[];      // Multiple product photograph URLs
   imageColor: string;    // CSS background class for the visual fallback
+  status?: 'listed' | 'unlisted'; // 'listed' means publicly visible, 'unlisted' means seasonal/hidden
 }
 
 export interface CustomerRequest {

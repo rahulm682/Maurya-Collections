@@ -5,7 +5,7 @@ import { Upload, X, Image as ImageIcon, Sparkles } from 'lucide-react';
 interface CreateProductModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onAddProduct: (product: Omit<Product, 'id' | 'likes' | 'reserved'>) => void;
+  onAddProduct: (product: Omit<Product, 'id' | 'likes'>) => void;
 }
 
 export default function CreateProductModal({ isOpen, onClose, onAddProduct }: CreateProductModalProps) {
@@ -15,7 +15,6 @@ export default function CreateProductModal({ isOpen, onClose, onAddProduct }: Cr
   const [category, setCategory] = useState('Frocks & Dresses');
   const [priceMin, setPriceMin] = useState<number>(450);
   const [priceMax, setPriceMax] = useState<number>(600);
-  const [stock, setStock] = useState<number>(8);
   const [sizes, setSizes] = useState('6-7Y, 8-9Y, 10-12Y');
   const [colors, setColors] = useState('Sky Pink, Lemon Yellow, Pitch White');
   const [images, setImages] = useState<string[]>([]);
@@ -87,11 +86,11 @@ export default function CreateProductModal({ isOpen, onClose, onAddProduct }: Cr
       category: category.trim(),
       priceMin: Number(priceMin),
       priceMax: Number(priceMax),
-      stock: Number(stock),
       sizes: sizeArray,
       colors: colorArray,
       images: images,
-      imageColor: 'bg-indigo-100 text-indigo-800'
+      imageColor: 'bg-indigo-100 text-indigo-800',
+      status: 'listed'
     });
 
     // Reset Form fields
@@ -101,7 +100,6 @@ export default function CreateProductModal({ isOpen, onClose, onAddProduct }: Cr
     setCategory('Frocks & Dresses');
     setPriceMin(450);
     setPriceMax(600);
-    setStock(8);
     setSizes('6-7Y, 8-9Y, 10-12Y');
     setColors('Sky Pink, Lemon Yellow, Pitch White');
     setImages([]);
@@ -186,7 +184,7 @@ export default function CreateProductModal({ isOpen, onClose, onAddProduct }: Cr
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-1 gap-2">
               <div>
                 <label htmlFor="style-category" className="block text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1">
                   Category *
@@ -199,21 +197,6 @@ export default function CreateProductModal({ isOpen, onClose, onAddProduct }: Cr
                   value={category}
                   onChange={(e) => setCategory(e.target.value)}
                   className="block w-full rounded-lg border border-slate-200 bg-slate-50 py-1.5 px-3 text-xs text-slate-900 focus:bg-white focus:outline-none transition-all"
-                />
-              </div>
-
-              <div>
-                <label htmlFor="style-stock" className="block text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1">
-                  Initial Stock Count *
-                </label>
-                <input
-                  type="number"
-                  id="style-stock"
-                  required
-                  min={0}
-                  value={stock}
-                  onChange={(e) => setStock(Number(e.target.value))}
-                  className="block w-full rounded-lg border border-slate-200 bg-slate-50 py-1.5 px-3 text-xs text-slate-905 focus:bg-white focus:outline-none transition-all font-mono font-bold"
                 />
               </div>
             </div>

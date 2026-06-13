@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { Product, CustomerRequest, VillageRoute, AgeGroup } from '../types';
 import { 
-  Plus, Search, Check, RefreshCw, MapPin, 
+  Plus, Search, Check, Minus, RefreshCw, MapPin, 
   AlertTriangle, Truck, Trash2, Package, Tag, 
   IndianRupee, PhoneCall, Mail, Layers, Calendar, HelpCircle
 } from 'lucide-react';
@@ -11,8 +11,9 @@ interface SellerViewProps {
   products: Product[];
   requests: CustomerRequest[];
   villages: VillageRoute[];
-  onAddProduct: (product: Omit<Product, 'id' | 'likes' | 'reserved'>) => void;
-  onUpdateStock: (productId: string, newStock: number) => void;
+  onAddProduct: (product: Omit<Product, 'id' | 'likes'>) => void;
+  onToggleProductStatus: (productId: string, newStatus: 'listed' | 'unlisted') => void;
+  onDeleteProduct: (productId: string) => void;
   onUpdateRequestStatus: (requestId: string, newStatus: CustomerRequest['status']) => void;
   onAllocateRequestStock: (requestId: string) => void;
   onDeleteRequest: (requestId: string) => void;
@@ -23,12 +24,18 @@ export default function SellerView({
   requests,
   villages,
   onAddProduct,
-  onUpdateStock,
+  onToggleProductStatus,
+  onDeleteProduct,
   onUpdateRequestStatus,
   onAllocateRequestStock,
   onDeleteRequest
 }: SellerViewProps) {
-  const [currentTab, setCurrentTab] = useState<'requests' | 'routes'>('requests');
+  const [currentTab, setCurrentTab] = useState<'requests' | 'routes' | 'products'>('requests');
+  
+  // Product filters
+  const [productSearch, setProductSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'listed' | 'unlisted'>('all');
+  const [sortBy, setSortBy] = useState<'name' | 'requests' | 'likes' | 'villages'>('name');
   
   // Village filtering for requests
   const [selectedVillageFilter, setSelectedVillageFilter] = useState<string>('All');
@@ -53,24 +60,55 @@ export default function SellerView({
     });
   }, [requests, selectedVillageFilter]);
 
-  // Under-stocked alerts (Disappointments list)
-  const procurementAlerts = useMemo(() => {
-    const alerts: { request: CustomerRequest; product: Product | undefined; reason: string }[] = [];
-    requests.forEach((r) => {
-      if (r.status === 'Pending') {
-        const product = products.find((p) => p.id === r.productId);
-        if (!product) return;
-        
-        const remainingStock = product.stock - product.reserved;
-        if (product.stock === 0) {
-          alerts.push({ request: r, product, reason: 'Completely OUT OF STOCK in warehouse shelf! Procure this item first.' });
-        } else if (remainingStock <= 0) {
-          alerts.push({ request: r, product, reason: 'Physical stock allocated to other villagers. Bring another piece!' });
-        }
-      }
+  // Under-stocked alerts are disabled as stock tracking is removed from the app
+  const procurementAlerts: any[] = [];
+
+  // Combined product catalog search, status filter, and dynamic sorting
+  const filteredProductsList = useMemo(() => {
+    const q = productSearch.toLowerCase().trim();
+    // 1. Search text filter
+    let list = products.filter((p) => {
+      return (
+        p.name.toLowerCase().includes(q) ||
+        p.category.toLowerCase().includes(q) ||
+        p.gender.toLowerCase().includes(q) ||
+        p.ageGroup.toLowerCase().includes(q)
+      );
     });
-    return alerts;
-  }, [requests, products]);
+
+    // 2. Status listing filter
+    if (statusFilter !== 'all') {
+      list = list.filter((p) => {
+        const currentStatus = p.status || 'listed';
+        return currentStatus === statusFilter;
+      });
+    }
+
+    // 3. Compute popularity stats
+    const listWithStats = list.map((p) => {
+      const matchRequests = requests.filter((r) => r.productId === p.id);
+      const uniqueVils = Array.from(new Set(matchRequests.map((r) => r.village.trim().toLowerCase())));
+      return {
+        ...p,
+        totalRequests: matchRequests.length,
+        totalLikes: p.likes || 0,
+        totalVillages: uniqueVils.length
+      };
+    });
+
+    // 4. Sort selection logic
+    if (sortBy === 'name') {
+      listWithStats.sort((a, b) => a.name.localeCompare(b.name));
+    } else if (sortBy === 'requests') {
+      listWithStats.sort((a, b) => b.totalRequests - a.totalRequests);
+    } else if (sortBy === 'likes') {
+      listWithStats.sort((a, b) => b.totalLikes - a.totalLikes);
+    } else if (sortBy === 'villages') {
+      listWithStats.sort((a, b) => b.totalVillages - a.totalVillages);
+    }
+
+    return listWithStats;
+  }, [products, productSearch, statusFilter, sortBy, requests]);
 
   return (
     <div className="py-5">
@@ -152,7 +190,7 @@ export default function SellerView({
       )}
 
       {/* Navigation Sub-Tabs */}
-      <div className="mb-4 flex space-x-1 border-b border-slate-150">
+      <div className="mb-4 flex space-x-1 border-b border-slate-150 font-sans">
         <button
           type="button"
           onClick={() => setCurrentTab('requests')}
@@ -174,6 +212,17 @@ export default function SellerView({
           }`}
         >
           Visit Routes
+        </button>
+        <button
+          type="button"
+          onClick={() => setCurrentTab('products')}
+          className={`pb-2.5 px-3 text-[11px] font-black uppercase tracking-wider relative ${
+            currentTab === 'products'
+              ? 'text-slate-900 border-b-2 border-slate-900 font-extrabold'
+              : 'text-slate-450 hover:text-slate-900 font-bold'
+          }`}
+        >
+          Available Products
         </button>
       </div>
 
@@ -234,8 +283,7 @@ export default function SellerView({
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-left">
               {filteredRequests.map((req) => {
                 const product = products.find((p) => p.id === req.productId);
-                const isOutOfStock = product ? product.stock === 0 : true;
-                const canAllocate = product && (product.stock - product.reserved) > 0;
+                const canAllocate = !!product;
 
                 return (
                   <div
@@ -343,7 +391,7 @@ export default function SellerView({
 
       {/* 2. Routes Area */}
       {currentTab === 'routes' && (
-        <div className="bg-white p-4 border rounded-2xl border-slate-150 text-left space-y-3.5">
+        <div className="bg-white p-4 border rounded-2xl border-slate-150 text-left space-y-3.5 font-sans">
           <div className="flex items-center space-x-2">
             <Calendar className="h-4.5 w-4.5 text-amber-600" />
             <h4 className="text-xs font-black uppercase text-slate-900">Weekly Route Schedule</h4>
@@ -372,6 +420,201 @@ export default function SellerView({
               );
             })}
           </div>
+        </div>
+      )}
+
+      {/* 3. Available Products Catalog Area */}
+      {currentTab === 'products' && (
+        <div className="space-y-4 font-sans text-left">
+          {/* Top Filter and Sorting System */}
+          <div className="flex flex-col gap-4 bg-slate-50 p-4 border rounded-2xl border-slate-150">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              {/* Filter */}
+              <div>
+                <label className="block text-[9px] font-black text-slate-500 uppercase mb-1.5 tracking-wider">Search Name &amp; Category:</label>
+                <div className="relative">
+                  <input
+                    type="text"
+                    placeholder="Filter styles..."
+                    value={productSearch}
+                    onChange={(e) => setProductSearch(e.target.value)}
+                    className="block w-full rounded-xl border border-slate-205 py-2 pl-8 pr-3 text-xs text-slate-900 bg-white focus:outline-none focus:ring-1 focus:ring-slate-950 font-medium"
+                  />
+                  <Search className="h-3.5 w-3.5 text-slate-400 absolute left-2.5 top-3" />
+                </div>
+              </div>
+
+              {/* Status Toggle */}
+              <div>
+                <label className="block text-[9px] font-black text-slate-500 uppercase mb-1.5 tracking-wider">Listing Status Filter:</label>
+                <select
+                  value={statusFilter}
+                  onChange={(e: any) => setStatusFilter(e.target.value)}
+                  className="block w-full rounded-xl border border-slate-205 py-2 px-3 text-xs text-slate-900 bg-white focus:outline-none focus:ring-1 focus:ring-slate-950 font-medium"
+                >
+                  <option value="all">All Styles (Active + Hidden)</option>
+                  <option value="listed">Listed Only (Publicly Available)</option>
+                  <option value="unlisted">Seasonal Only (Hidden / Not Listed)</option>
+                </select>
+              </div>
+
+              {/* Sorting Filter */}
+              <div>
+                <label className="block text-[9px] font-black text-slate-500 uppercase mb-1.5 tracking-wider">Sort Styles By:</label>
+                <select
+                  value={sortBy}
+                  onChange={(e: any) => setSortBy(e.target.value)}
+                  className="block w-full rounded-xl border border-slate-205 py-2 px-3 text-xs text-slate-900 bg-white focus:outline-none focus:ring-1 focus:ring-slate-950 font-medium"
+                >
+                  <option value="name">Product Name (Alphabetical)</option>
+                  <option value="requests">Demand Popularity (Total Requests)</option>
+                  <option value="likes">Customer Favorites (Likes count)</option>
+                  <option value="villages">Village Dispersion (Unique Villages)</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Sub Counter bar */}
+            <div className="flex items-center justify-between border-t border-slate-150 pt-3 flex-wrap gap-2">
+              <span className="text-[10px] text-slate-500 font-bold">
+                Showing <strong className="text-slate-900">{filteredProductsList.length}</strong> styles matching selection
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowAddProductModal(true)}
+                className="py-2 px-4 bg-slate-900 hover:bg-slate-800 text-amber-400 hover:text-white text-[10px] font-black uppercase tracking-wider rounded-xl flex items-center justify-center gap-1.5 shadow-xs transition-all cursor-pointer"
+              >
+                <Plus className="h-4 w-4 text-amber-400" />
+                <span>Upload Style</span>
+              </button>
+            </div>
+          </div>
+
+          {filteredProductsList.length === 0 ? (
+            <div className="p-8 text-center bg-slate-50 border rounded-xl border-dashed border-slate-205">
+              <Package className="h-8 w-8 text-slate-350 mx-auto mb-2" />
+              <h3 className="text-xs font-bold text-slate-850 uppercase">No matching products found</h3>
+              <p className="mt-1 text-[11px] text-slate-500">Try modifying search or filters.</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+              {filteredProductsList.map((p) => {
+                const hasImage = p.images && p.images.length > 0;
+                const pStatus = p.status || 'listed';
+
+                return (
+                  <div key={p.id} className="p-4 bg-white border border-slate-150 rounded-2xl flex flex-col justify-between hover:border-slate-300 transition-all shadow-2xs">
+                    <div>
+                      {/* Product identity header */}
+                      <div className="flex gap-3 items-start mb-3">
+                        {hasImage ? (
+                          <img
+                            src={p.images[0]}
+                            referrerPolicy="no-referrer"
+                            alt={p.name}
+                            className="w-14 h-14 rounded-xl object-cover shrink-0 border border-slate-100"
+                          />
+                        ) : (
+                          <div className={`w-14 h-14 rounded-xl ${p.imageColor || 'bg-slate-100'} flex items-center justify-center shrink-0 border border-slate-100 text-slate-400`}>
+                            <Tag className="h-5 w-5" />
+                          </div>
+                        )}
+
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-1 flex-wrap">
+                            <span className="text-[8px] font-black uppercase text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded tracking-wide border border-amber-100">
+                              {p.category}
+                            </span>
+                            <span className="text-[8px] font-black uppercase bg-slate-100 text-slate-800 px-1.5 py-0.5 rounded">
+                              {p.gender}
+                            </span>
+                          </div>
+                          <h4 className="font-extrabold text-slate-905 text-xs truncate mt-1" title={p.name}>
+                            {p.name}
+                          </h4>
+                          <p className="text-[10px] font-mono text-slate-500 mt-0.5 font-bold">
+                            ₹{p.priceMin} - ₹{p.priceMax}
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Details specs list */}
+                      <div className="border-t border-slate-100 pt-3 pb-2 space-y-2 text-[10px]">
+                        <div className="flex items-center justify-between">
+                          <span className="text-slate-450 font-bold">Age Group:</span>
+                          <span className="text-slate-800 font-bold bg-slate-50 px-1.5 py-0.5 rounded">{p.ageGroup}</span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-slate-450 font-bold">Sizes Offered:</span>
+                          <span className="text-slate-800 font-bold font-mono">{(p.sizes || []).join(', ')}</span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-slate-450 font-bold">Colors:</span>
+                          <span className="text-slate-800 font-bold">{(p.colors || []).join(', ')}</span>
+                        </div>
+                        <div className="flex items-center justify-between border-t border-dashed border-slate-100 pt-2 pb-1">
+                          <span className="text-slate-450 font-bold">Likes count:</span>
+                          <span className="text-rose-600 font-bold flex items-center gap-0.5">
+                            ❤️ {p.totalLikes} Likes
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-slate-450 font-bold">Active Demands:</span>
+                          <span className="font-mono font-black text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded">
+                            ✨ {p.totalRequests} custom holds
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-slate-450 font-bold">Village Footprint:</span>
+                          <span className="text-slate-800 font-mono font-bold">📍 {p.totalVillages} villages</span>
+                        </div>
+                        <div className="flex items-center justify-between border-t border-dashed border-slate-100 pt-2">
+                          <span className="text-slate-450 font-bold">Public Status:</span>
+                          {pStatus === 'listed' ? (
+                            <span className="text-[8px] font-black uppercase text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded tracking-wide font-mono">
+                              PUBLICLY LISTED
+                            </span>
+                          ) : (
+                            <span className="text-[8px] font-black uppercase text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded tracking-wide font-mono">
+                              SEASONAL (HIDDEN)
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Controls */}
+                    <div className="mt-3 flex gap-2 items-center">
+                      <button
+                        type="button"
+                        onClick={() => onToggleProductStatus(p.id, pStatus === 'listed' ? 'unlisted' : 'listed')}
+                        className={`flex-1 py-1.5 px-2.5 rounded-xl border text-[9px] font-black uppercase tracking-wider text-center transition-all cursor-pointer ${
+                          pStatus === 'listed'
+                            ? 'bg-amber-50 border-amber-200 text-amber-800 hover:bg-amber-100'
+                            : 'bg-emerald-50 border-emerald-200 text-emerald-800 hover:bg-emerald-100'
+                        }`}
+                      >
+                        {pStatus === 'listed' ? 'Unlist (Set Seasonal)' : 'Make Listed'}
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (window.confirm(`Are you sure you want to permanently delete "${p.name}" from your system catalog? This will delete the style completely.`)) {
+                            onDeleteProduct(p.id);
+                          }
+                        }}
+                        className="py-1.5 px-2 bg-slate-50 border border-slate-200 hover:bg-rose-50 hover:border-rose-200 hover:text-rose-605 rounded-xl transition-all cursor-pointer"
+                        title="Delete product permanently"
+                      >
+                        <Trash2 className="h-3.5 w-3.5 text-slate-500 hover:text-rose-600" />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
 
