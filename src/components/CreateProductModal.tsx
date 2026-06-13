@@ -180,6 +180,7 @@ export default function CreateProductModal({ isOpen, onClose, onAddProduct }: Cr
                   <option value="Toddler (2-5)">Toddler (2-5 Yrs)</option>
                   <option value="Kids (5-12)">Kids (5-12 Yrs)</option>
                   <option value="Teens (12-18)">Teens (12-18 Yrs)</option>
+                  <option value="All Age Groups">All Age Groups</option>
                 </select>
               </div>
             </div>

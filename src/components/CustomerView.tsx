@@ -25,6 +25,7 @@ export default function CustomerView({
   const [selectedGender, setSelectedGender] = useState<Gender | 'All'>('All');
   const [selectedAge, setSelectedAge] = useState<AgeGroup | 'All'>('All');
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
+  const [sortBy, setSortBy] = useState<'default' | 'priceAsc' | 'priceDesc' | 'likesDesc'>('default');
 
   // Form State
   const [reservationProduct, setReservationProduct] = useState<Product | null>(null);
@@ -52,9 +53,11 @@ export default function CustomerView({
   // Combined filters logic
   const filteredProducts = useMemo(() => {
     if (!Array.isArray(products)) return [];
-    return products.filter((p) => {
+    
+    // 1. Filter
+    let list = products.filter((p) => {
       if (!p) return false;
-      if (p.status === 'unlisted') return false; // Hide seasonal/unlisted styles
+      if (p.status === 'unlisted') return false; // Hide unlisted/hidden styles
       const matchSearch = (p.name || '').toLowerCase().includes(searchQuery.toLowerCase()) || 
                           (p.category || '').toLowerCase().includes(searchQuery.toLowerCase());
       const matchGender = selectedGender === 'All' || p.gender === selectedGender;
@@ -62,7 +65,21 @@ export default function CustomerView({
       const matchCat = selectedCategory === 'All' || p.category === selectedCategory;
       return matchSearch && matchGender && matchAge && matchCat;
     });
-  }, [products, searchQuery, selectedGender, selectedAge, selectedCategory]);
+
+    // 2. Sort
+    if (sortBy === 'priceAsc') {
+      list.sort((a, b) => a.priceMin - b.priceMin);
+    } else if (sortBy === 'priceDesc') {
+      list.sort((a, b) => b.priceMax - a.priceMax);
+    } else if (sortBy === 'likesDesc') {
+      list.sort((a, b) => (b.likes || 0) - (a.likes || 0));
+    } else {
+      // Default: Alphabetical by Name
+      list.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+    }
+
+    return list;
+  }, [products, searchQuery, selectedGender, selectedAge, selectedCategory, sortBy]);
 
   const handleOpenReserve = (product: Product) => {
     setReservationProduct(product);
@@ -108,24 +125,7 @@ export default function CustomerView({
 
   return (
     <div className="py-5">
-      {/* Brand Elegant Welcome Plate */}
-      <div className="mb-6 rounded-2xl bg-slate-900 border border-slate-800 p-5 text-white shadow-xl relative overflow-hidden">
-        {/* Decorative ambient background accents */}
-        <div className="absolute -right-12 -top-12 h-44 w-44 rounded-full bg-amber-500/10 blur-3xl pointer-events-none"></div>
-        
-        <div className="relative text-left">
-          <div className="inline-flex items-center space-x-1 bg-amber-500/15 px-2.5 py-0.5 rounded-full text-[10px] font-bold text-amber-400 mb-3 border border-amber-400/20 uppercase tracking-widest">
-            <Sparkles className="h-3 w-3 animate-pulse" />
-            <span>Weekly Village Route Service</span>
-          </div>
-          <h2 className="text-xl font-black tracking-tight leading-tight uppercase">
-            Maurya Collections
-          </h2>
-          <p className="mt-1.5 text-xs text-slate-300 leading-relaxed max-w-xl">
-            View real-time stock directly from our delivery truck. Select clothes, lock in your exact size/color, and we will bring them to your village on visit day!
-          </p>
-        </div>
-      </div>
+
 
       {/* High-Craft Filter Shelf */}
       <div className="bg-white rounded-2xl border border-slate-150 p-4 mb-6 shadow-xs text-left">
@@ -153,9 +153,10 @@ export default function CustomerView({
             />
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5">
             {/* Gender Switch */}
             <div>
+              <label htmlFor="search-gender" className="block text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1">Gender</label>
               <select
                 id="search-gender"
                 value={selectedGender}
@@ -171,22 +172,25 @@ export default function CustomerView({
 
             {/* Age Group select */}
             <div>
+              <label htmlFor="search-age" className="block text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1">Age Bracket</label>
               <select
                 id="search-age"
                 value={selectedAge}
                 onChange={(e) => setSelectedAge(e.target.value as AgeGroup | 'All')}
                 className="block w-full rounded-lg border border-slate-200 bg-slate-50 py-1.5 px-2 text-[10px] font-bold text-slate-800 focus:bg-white focus:outline-none transition-all"
               >
-                <option value="All">All Ages (0-18Y)</option>
+                <option value="All">All Ages</option>
                 <option value="Baby (0-2)">Baby (0-2Y)</option>
                 <option value="Toddler (2-5)">Toddler (2-5Y)</option>
                 <option value="Kids (5-12)">Kids (5-12Y)</option>
                 <option value="Teens (12-18)">Teens (12-18Y)</option>
+                <option value="All Age Groups">All Age Groups</option>
               </select>
             </div>
 
             {/* Category selection */}
             <div>
+              <label htmlFor="search-category" className="block text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1">Category</label>
               <select
                 id="search-category"
                 value={selectedCategory}
@@ -197,6 +201,22 @@ export default function CustomerView({
                 {categories.filter(c => c !== 'All').map((cat) => (
                   <option key={cat} value={cat}>{cat}</option>
                 ))}
+              </select>
+            </div>
+
+            {/* Sort selection */}
+            <div>
+              <label htmlFor="search-sort" className="block text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1">Sort By</label>
+              <select
+                id="search-sort"
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value as any)}
+                className="block w-full rounded-lg border border-slate-200 bg-slate-50 py-1.5 px-2 text-[10px] font-bold text-slate-800 focus:bg-white focus:outline-none transition-all"
+              >
+                <option value="default">Product Title (A-Z)</option>
+                <option value="priceAsc">Price: Low to High</option>
+                <option value="priceDesc">Price: High to Low</option>
+                <option value="likesDesc">Most Popular (Likes)</option>
               </select>
             </div>
           </div>

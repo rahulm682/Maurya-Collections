@@ -1,5 +1,5 @@
 export type Gender = 'Boys' | 'Girls' | 'Unisex';
-export type AgeGroup = 'Baby (0-2)' | 'Toddler (2-5)' | 'Kids (5-12)' | 'Teens (12-18)';
+export type AgeGroup = 'Baby (0-2)' | 'Toddler (2-5)' | 'Kids (5-12)' | 'Teens (12-18)' | 'All Age Groups';
 
 export interface Product {
   id: string;
@@ -14,7 +14,7 @@ export interface Product {
   colors: string[];      // Available colors (e.g., 'Pink', 'Yellow', 'Blue')
   images: string[];      // Multiple product photograph URLs
   imageColor: string;    // CSS background class for the visual fallback
-  status?: 'listed' | 'unlisted'; // 'listed' means publicly visible, 'unlisted' means seasonal/hidden
+  status?: 'listed' | 'unlisted'; // 'listed' means publicly visible, 'unlisted' means hidden/unlisted
 }
 
 export interface CustomerRequest {

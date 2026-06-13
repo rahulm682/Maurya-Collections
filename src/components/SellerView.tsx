@@ -42,6 +42,7 @@ export default function SellerView({
   
   // Add Product Form State
   const [showAddProductModal, setShowAddProductModal] = useState(false);
+  const [deletingProductId, setDeletingProductId] = useState<string | null>(null);
 
   // Unique villages list from request submissions
   const submissionVillages = useMemo(() => {
@@ -454,7 +455,7 @@ export default function SellerView({
                 >
                   <option value="all">All Styles (Active + Hidden)</option>
                   <option value="listed">Listed Only (Publicly Available)</option>
-                  <option value="unlisted">Seasonal Only (Hidden / Not Listed)</option>
+                  <option value="unlisted">Unlisted Only (Hidden)</option>
                 </select>
               </div>
 
@@ -576,7 +577,7 @@ export default function SellerView({
                             </span>
                           ) : (
                             <span className="text-[8px] font-black uppercase text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded tracking-wide font-mono">
-                              SEASONAL (HIDDEN)
+                              UNLISTED (HIDDEN)
                             </span>
                           )}
                         </div>
@@ -584,31 +585,56 @@ export default function SellerView({
                     </div>
 
                     {/* Controls */}
-                    <div className="mt-3 flex gap-2 items-center">
-                      <button
-                        type="button"
-                        onClick={() => onToggleProductStatus(p.id, pStatus === 'listed' ? 'unlisted' : 'listed')}
-                        className={`flex-1 py-1.5 px-2.5 rounded-xl border text-[9px] font-black uppercase tracking-wider text-center transition-all cursor-pointer ${
-                          pStatus === 'listed'
-                            ? 'bg-amber-50 border-amber-200 text-amber-800 hover:bg-amber-100'
-                            : 'bg-emerald-50 border-emerald-200 text-emerald-800 hover:bg-emerald-100'
-                        }`}
-                      >
-                        {pStatus === 'listed' ? 'Unlist (Set Seasonal)' : 'Make Listed'}
-                      </button>
+                    <div className="mt-3 h-8 flex items-center">
+                      {deletingProductId === p.id ? (
+                        <div className="flex gap-2 w-full items-center justify-between bg-rose-50/50 border border-rose-100 p-1 px-1.5 rounded-xl animate-fade-in">
+                          <span className="text-[9px] font-black text-rose-700 uppercase tracking-wider">Confirm delete?</span>
+                          <div className="flex gap-1 shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                onDeleteProduct(p.id);
+                                setDeletingProductId(null);
+                              }}
+                              className="py-1 px-2.5 bg-rose-600 hover:bg-rose-700 text-white text-[9px] font-black uppercase tracking-wider rounded-lg transition-all cursor-pointer"
+                            >
+                              Yes, Delete
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setDeletingProductId(null)}
+                              className="py-1 px-2.5 bg-slate-100 hover:bg-slate-200 text-slate-800 text-[9px] font-black uppercase tracking-wider rounded-lg transition-all cursor-pointer"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex gap-2 items-center w-full">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              onToggleProductStatus(p.id, pStatus === 'listed' ? 'unlisted' : 'listed');
+                            }}
+                            className={`flex-1 py-1.5 px-2.5 rounded-xl border text-[9px] font-black uppercase tracking-wider text-center transition-all cursor-pointer ${
+                              pStatus === 'listed'
+                                ? 'bg-amber-50 border-amber-200 text-amber-800 hover:bg-amber-100'
+                                : 'bg-emerald-50 border-emerald-200 text-emerald-800 hover:bg-emerald-100'
+                            }`}
+                          >
+                            {pStatus === 'listed' ? 'Unlist' : 'Make Listed'}
+                          </button>
 
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (window.confirm(`Are you sure you want to permanently delete "${p.name}" from your system catalog? This will delete the style completely.`)) {
-                            onDeleteProduct(p.id);
-                          }
-                        }}
-                        className="py-1.5 px-2 bg-slate-50 border border-slate-200 hover:bg-rose-50 hover:border-rose-200 hover:text-rose-605 rounded-xl transition-all cursor-pointer"
-                        title="Delete product permanently"
-                      >
-                        <Trash2 className="h-3.5 w-3.5 text-slate-500 hover:text-rose-600" />
-                      </button>
+                          <button
+                            type="button"
+                            onClick={() => setDeletingProductId(p.id)}
+                            className="py-1.5 px-2 bg-slate-50 border border-slate-200 hover:bg-rose-50 hover:border-rose-200 hover:text-rose-600 rounded-xl transition-all cursor-pointer"
+                            title="Delete product permanently"
+                          >
+                            <Trash2 className="h-3.5 w-3.5 text-slate-500 hover:text-rose-600" />
+                          </button>
+                        </div>
+                      )}
                     </div>
                   </div>
                 );

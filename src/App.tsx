@@ -6,6 +6,24 @@ import CustomerView from './components/CustomerView';
 import SellerView from './components/SellerView';
 import { CheckCircle2, Lock } from 'lucide-react';
 
+// Firebase imports
+import { 
+  collection, 
+  onSnapshot, 
+  doc, 
+  setDoc, 
+  getDocs, 
+  updateDoc, 
+  deleteDoc 
+} from 'firebase/firestore';
+import { 
+  signInWithPopup, 
+  GoogleAuthProvider, 
+  signOut, 
+  onAuthStateChanged 
+} from 'firebase/auth';
+import { db, auth, handleFirestoreError, OperationType, testConnection } from './firebase';
+
 export default function App() {
   const [currentRole, setCurrentRole] = useState<'customer' | 'seller'>('customer');
   
@@ -22,65 +40,29 @@ export default function App() {
   const [loginPassword, setLoginPassword] = useState('');
   const [loginError, setLoginError] = useState<string | null>(null);
 
-  // Load from localStorage on mount
+  // 1. Initial State Sync & Auth Gate Listening
   useEffect(() => {
-    const savedProducts = localStorage.getItem('route_products');
-    const savedRequests = localStorage.getItem('route_requests');
+    // Probe Firestore server connection to trace any missing credentials upfront
+    testConnection();
+
+    const unsubAuth = onAuthStateChanged(auth, (user) => {
+      if (user && user.email === 'maurya.rahul6820@gmail.com') {
+        setAdminAuthenticated(true);
+        localStorage.setItem('maurya_admin_auth', 'true');
+      } else {
+        const savedAdminAuth = localStorage.getItem('maurya_admin_auth');
+        if (savedAdminAuth === 'true') {
+          // Guard for local testing fallback credentials
+          setAdminAuthenticated(true);
+        } else {
+          setAdminAuthenticated(false);
+        }
+      }
+    });
+
+    // Populate static route villages and member wishlist likes
     const savedVillages = localStorage.getItem('route_villages');
     const savedLikes = localStorage.getItem('route_likes');
-    const savedAdminAuth = localStorage.getItem('maurya_admin_auth');
-
-    if (savedProducts) {
-      try {
-        const parsed = JSON.parse(savedProducts);
-        if (Array.isArray(parsed)) {
-          const sanitized = parsed.map((p: any) => ({
-            ...p,
-            sizes: Array.isArray(p.sizes) ? p.sizes : (typeof p.sizes === 'string' ? p.sizes.split(',').map((s: string) => s.trim()).filter(Boolean) : []),
-            colors: Array.isArray(p.colors) ? p.colors : (typeof p.colors === 'string' ? p.colors.split(',').map((c: string) => c.trim()).filter(Boolean) : []),
-            images: Array.isArray(p.images) ? p.images : (typeof p.images === 'string' ? p.images.split(',').map((i: string) => i.trim()).filter(Boolean) : (p.image ? [p.image] : [])),
-            likes: typeof p.likes === 'number' ? p.likes : 0,
-            priceMin: typeof p.priceMin === 'number' ? p.priceMin : (typeof p.price === 'number' ? p.price : 0),
-            priceMax: typeof p.priceMax === 'number' ? p.priceMax : (typeof p.price === 'number' ? p.price : 0),
-            category: p.category || 'Apparel',
-            status: p.status === 'unlisted' ? 'unlisted' : 'listed',
-          }));
-          setProducts(sanitized);
-        } else {
-          setProducts(INITIAL_PRODUCTS);
-          localStorage.setItem('route_products', JSON.stringify(INITIAL_PRODUCTS));
-        }
-      } catch (e) {
-        setProducts(INITIAL_PRODUCTS);
-      }
-    } else {
-      setProducts(INITIAL_PRODUCTS);
-      localStorage.setItem('route_products', JSON.stringify(INITIAL_PRODUCTS));
-    }
-
-    if (savedRequests) {
-      try {
-        const parsed = JSON.parse(savedRequests);
-        if (Array.isArray(parsed)) {
-          const sanitized = parsed.map((r: any) => ({
-            ...r,
-            requestedColor: r.requestedColor || 'Standard',
-            requestedSize: r.requestedSize || 'N/A',
-            requestedAgeGroup: r.requestedAgeGroup || 'Kids (5-12)',
-            village: r.village || 'Rampur',
-          }));
-          setRequests(sanitized);
-        } else {
-          setRequests(INITIAL_REQUESTS);
-          localStorage.setItem('route_requests', JSON.stringify(INITIAL_REQUESTS));
-        }
-      } catch (e) {
-        setRequests(INITIAL_REQUESTS);
-      }
-    } else {
-      setRequests(INITIAL_REQUESTS);
-      localStorage.setItem('route_requests', JSON.stringify(INITIAL_REQUESTS));
-    }
 
     if (savedVillages) {
       try {
@@ -101,21 +83,75 @@ export default function App() {
       }
     }
 
-    if (savedAdminAuth === 'true') {
-      setAdminAuthenticated(true);
-    }
+    return () => {
+      unsubAuth();
+    };
   }, []);
 
-  // Persists states helper
-  const saveProductsToStorage = (updatedProducts: Product[]) => {
-    setProducts(updatedProducts);
-    localStorage.setItem('route_products', JSON.stringify(updatedProducts));
-  };
+  // 2. Dynamic Real-time Collections listening from Firestore DB
+  useEffect(() => {
+    console.log("Setting up live database listeners...");
 
-  const saveRequestsToStorage = (updatedRequests: CustomerRequest[]) => {
-    setRequests(updatedRequests);
-    localStorage.setItem('route_requests', JSON.stringify(updatedRequests));
-  };
+    const unsubProducts = onSnapshot(collection(db, 'products'), (snapshot) => {
+      const fetchedProducts: Product[] = [];
+      snapshot.forEach((docSnap) => {
+        fetchedProducts.push(docSnap.data() as Product);
+      });
+
+      if (fetchedProducts.length > 0) {
+        setProducts(fetchedProducts);
+      } else {
+        // Fallback to memory configuration until master sync
+        setProducts(INITIAL_PRODUCTS);
+      }
+    }, (error) => {
+      console.warn("Products listener failed, fallback to local seeds. Details:", error.message);
+      setProducts(INITIAL_PRODUCTS);
+    });
+
+    const unsubRequests = onSnapshot(collection(db, 'requests'), (snapshot) => {
+      const fetchedRequests: CustomerRequest[] = [];
+      snapshot.forEach((docSnap) => {
+        fetchedRequests.push(docSnap.data() as CustomerRequest);
+      });
+      setRequests(fetchedRequests);
+    }, (error) => {
+      console.warn("Requests listener failed, waiting for auth. Details:", error.message);
+    });
+
+    return () => {
+      unsubProducts();
+      unsubRequests();
+    };
+  }, []);
+
+  // 3. Auto-seed Empty Database when Admin authenticates to Real Connection
+  useEffect(() => {
+    if (!adminAuthenticated || auth.currentUser?.email !== 'maurya.rahul6820@gmail.com') return;
+
+    const checkAndSeed = async () => {
+      try {
+        const prodSnap = await getDocs(collection(db, 'products'));
+        if (prodSnap.empty) {
+          triggerToast('Empty cloud database. Seeding master styles into Firestore...', 'info');
+          for (const prod of INITIAL_PRODUCTS) {
+            await setDoc(doc(db, 'products', prod.id), prod);
+          }
+          triggerToast('Firestore Database successfully initialized!', 'success');
+        }
+
+        const reqSnap = await getDocs(collection(db, 'requests'));
+        if (reqSnap.empty) {
+          for (const req of INITIAL_REQUESTS) {
+            await setDoc(doc(db, 'requests', req.id), req);
+          }
+        }
+      } catch (err) {
+        console.warn('Real Database seeding check skipped or non-admin mode:', err);
+      }
+    };
+    checkAndSeed();
+  }, [adminAuthenticated]);
 
   const triggerToast = (message: string, type: 'success' | 'info' = 'success') => {
     setUiNotification({ message, type });
@@ -124,17 +160,16 @@ export default function App() {
     }, 3500);
   };
 
-  // Auth Handler
+  // Auth Handlers (Credential mode and Google DB Auth)
   const handleAdminSignIn = (e: React.FormEvent) => {
     e.preventDefault();
     setLoginError(null);
 
-    // Exact requested admin account credentials
+    // Standard credential matching (Sets local auth context state)
     if (loginEmail.trim() === 'maurya.rahul6820@gmail.com' && loginPassword === 'Rahul@1234') {
       setAdminAuthenticated(true);
       localStorage.setItem('maurya_admin_auth', 'true');
-      triggerToast('Welcome back, Rahul Maurya! Secure admin ledger active.', 'success');
-      // Reset input
+      triggerToast('Welcome back, Rahul Maurya! Local credential view active.', 'success');
       setLoginEmail('');
       setLoginPassword('');
     } else {
@@ -142,32 +177,59 @@ export default function App() {
     }
   };
 
-  const handleAdminSignOut = () => {
+  const handleGoogleSignIn = async () => {
+    setLoginError(null);
+    const provider = new GoogleAuthProvider();
+    try {
+      const result = await signInWithPopup(auth, provider);
+      if (result.user.email === 'maurya.rahul6820@gmail.com') {
+        setAdminAuthenticated(true);
+        localStorage.setItem('maurya_admin_auth', 'true');
+        triggerToast('Sign-In Successful! Real-time Firestore ledger unlocked.', 'success');
+      } else {
+        await signOut(auth);
+        setLoginError('Access Denied. Only the authorized owner account (maurya.rahul6820@gmail.com) can manage the cloud database.');
+      }
+    } catch (err: any) {
+      setLoginError(`Google Authentication failed: ${err.message}`);
+    }
+  };
+
+  const handleAdminSignOut = async () => {
+    try {
+      await signOut(auth);
+    } catch (err) {
+      console.error('Firebase Auth signout error:', err);
+    }
     setAdminAuthenticated(false);
     localStorage.removeItem('maurya_admin_auth');
     setCurrentRole('customer'); // Return safely to customer shop catalog
     triggerToast('Logged out of Admin Session safely.', 'info');
   };
 
-  // 1. Customer submits interest request
-  const handleAddRequest = (newReq: Omit<CustomerRequest, 'id' | 'dateRequested' | 'status'>) => {
+  // 1. Customer submits interest reservation request
+  const handleAddRequest = async (newReq: Omit<CustomerRequest, 'id' | 'dateRequested' | 'status'>) => {
     const today = new Date();
     const formattedDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+    const id = `req-${Date.now()}`;
     
     const request: CustomerRequest = {
       ...newReq,
-      id: `req-${Date.now()}`,
+      id,
       dateRequested: formattedDate,
       status: 'Pending'
     };
 
-    const updatedRequests = [request, ...requests];
-    saveRequestsToStorage(updatedRequests);
-    triggerToast(`Thanks ${newReq.customerName}! Saved for verification.`);
+    try {
+      await setDoc(doc(db, 'requests', id), request);
+      triggerToast(`Thanks ${newReq.customerName}! Saved for verification.`);
+    } catch (e) {
+      handleFirestoreError(e, OperationType.WRITE, `requests/${id}`);
+    }
   };
 
-  // 2. Customer likes an item
-  const handleLikeProduct = (productId: string) => {
+  // 2. Customer likes/unlikes an item
+  const handleLikeProduct = async (productId: string) => {
     let isLikedNow = false;
     const updatedLikes = [...likedProductIds];
     const index = updatedLikes.indexOf(productId);
@@ -182,79 +244,90 @@ export default function App() {
     setLikedProductIds(updatedLikes);
     localStorage.setItem('route_likes', JSON.stringify(updatedLikes));
 
-    // Update product likes counts
-    const updatedProducts = products.map((p) => {
-      if (p.id === productId) {
-        return {
-          ...p,
-          likes: Math.max(0, p.likes + (isLikedNow ? 1 : -1))
-        };
-      }
-      return p;
-    });
-    saveProductsToStorage(updatedProducts);
+    // Optimistically update cloud products
+    const targetProduct = products.find(p => p.id === productId);
+    if (!targetProduct) return;
+
+    const netLikesChange = isLikedNow ? 1 : -1;
+    const nextLikesCount = Math.max(0, (targetProduct.likes || 0) + netLikesChange);
+
+    try {
+      await updateDoc(doc(db, 'products', productId), {
+        likes: nextLikesCount
+      });
+    } catch (e) {
+      // If permission is denied because they are a non-admin, Firestore rules permit
+      // public updates ONLY on the 'likes' attribute. Let's process or handle failures.
+      console.warn("Failed syncing likes count directly, likely offline or permission limit. Fallback locally.");
+    }
   };
 
-  // 3. Admin adds a whole new clothing style
-  const handleAddProduct = (newProd: Omit<Product, 'id' | 'likes'>) => {
+  // 3. Admin adds a whole new clothing style to product line
+  const handleAddProduct = async (newProd: Omit<Product, 'id' | 'likes'>) => {
+    const id = `p-${Date.now()}`;
     const product: Product = {
       ...newProd,
-      id: `p-${Date.now()}`,
+      id,
       likes: 0,
       status: 'listed'
     };
 
-    const updatedProducts = [product, ...products];
-    saveProductsToStorage(updatedProducts);
-    triggerToast(`Created style "${newProd.name}" successfully!`);
+    try {
+      await setDoc(doc(db, 'products', id), product);
+      triggerToast(`Created style "${newProd.name}" successfully!`);
+    } catch (e) {
+      handleFirestoreError(e, OperationType.WRITE, `products/${id}`);
+    }
   };
 
   // 4. Admin toggles if an item is listed or unlisted
-  const handleToggleProductStatus = (productId: string, newStatus: 'listed' | 'unlisted') => {
-    const updatedProducts = products.map((p) => {
-      if (p.id === productId) {
-        return { ...p, status: newStatus };
-      }
-      return p;
-    });
-    saveProductsToStorage(updatedProducts);
-    triggerToast(`Product listing status set to ${newStatus}`);
+  const handleToggleProductStatus = async (productId: string, newStatus: 'listed' | 'unlisted') => {
+    try {
+      await updateDoc(doc(db, 'products', productId), {
+        status: newStatus
+      });
+      triggerToast(`Product listing status set to ${newStatus}`);
+    } catch (e) {
+      handleFirestoreError(e, OperationType.UPDATE, `products/${productId}`);
+    }
   };
 
-  // 5. Admin completely deletes product from inventory
-  const handleDeleteProduct = (productId: string) => {
-    const updatedProducts = products.filter((p) => p.id !== productId);
-    saveProductsToStorage(updatedProducts);
-    triggerToast('Product style fully deleted from inventory ledger.');
+  // 5. Admin completely deletes product from inventory database
+  const handleDeleteProduct = async (productId: string) => {
+    try {
+      await deleteDoc(doc(db, 'products', productId));
+      triggerToast('Product style fully deleted from inventory ledger.');
+    } catch (e) {
+      handleFirestoreError(e, OperationType.DELETE, `products/${productId}`);
+    }
   };
 
   // 6. Admin updates reservation status pipeline
-  const handleUpdateRequestStatus = (requestId: string, newStatus: CustomerRequest['status']) => {
+  const handleUpdateRequestStatus = async (requestId: string, newStatus: CustomerRequest['status']) => {
     const targetRequest = requests.find(r => r.id === requestId);
     if (!targetRequest) return;
 
-    const oldStatus = targetRequest.status;
-    if (oldStatus === newStatus) return;
-
-    const updatedRequests = requests.map((r) => {
-      if (r.id === requestId) {
-        return { ...r, status: newStatus };
-      }
-      return r;
-    });
-
-    saveRequestsToStorage(updatedRequests);
-    triggerToast(`Order for ${targetRequest.customerName} marked ${newStatus}`);
+    try {
+      await updateDoc(doc(db, 'requests', requestId), {
+        status: newStatus
+      });
+      triggerToast(`Order for ${targetRequest.customerName} marked ${newStatus}`);
+    } catch (e) {
+      handleFirestoreError(e, OperationType.UPDATE, `requests/${requestId}`);
+    }
   };
 
   const handleAllocateRequestStock = (requestId: string) => {
     handleUpdateRequestStatus(requestId, 'Allocated');
   };
 
-  const handleDeleteRequest = (requestId: string) => {
-    const updatedRequests = requests.filter(r => r.id !== requestId);
-    saveRequestsToStorage(updatedRequests);
-    triggerToast(`Deleted request from collections stream`);
+  const handleDeleteRequest = async (requestId: string) => {
+    try {
+      await deleteDoc(doc(db, 'requests', requestId));
+      triggerToast(`Deleted request from collections stream`);
+    } catch (e) {
+      handleFirestoreError(e, OperationType.DELETE, `requests/${requestId}`);
+    }
   };
 
   const pendingRequests = requests.filter(r => r.status === 'Pending');
@@ -314,11 +387,43 @@ export default function App() {
               <button
                 type="submit"
                 id="btn-admin-login-submit"
-                className="w-full py-2 bg-slate-900 hover:bg-slate-800 text-white text-[10px] font-black uppercase tracking-widest rounded-xl transition-all shadow"
+                className="w-full py-2 bg-slate-900 hover:bg-slate-800 text-white text-[10px] font-black uppercase tracking-widest rounded-xl transition-all shadow cursor-pointer"
               >
-                Sign In to Ledger
+                Sign In to Ledger (Offline View)
               </button>
             </form>
+
+            <div className="flex items-center justify-between gap-2 py-1">
+              <span className="h-px bg-slate-200 flex-1"></span>
+              <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider shrink-0">OR</span>
+              <span className="h-px bg-slate-200 flex-1"></span>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleGoogleSignIn}
+              className="w-full py-2 border border-slate-200 hover:bg-slate-50 text-slate-800 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all shadow-sm flex items-center justify-center gap-2 cursor-pointer bg-white"
+            >
+              <svg className="h-3.5 w-3.5 shrink-0" viewBox="0 0 24 24">
+                <path
+                  fill="#4285F4"
+                  d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+                />
+                <path
+                  fill="#34A853"
+                  d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+                />
+                <path
+                  fill="#FBBC05"
+                  d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l3.66-2.85z"
+                />
+                <path
+                  fill="#EA4335"
+                  d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.85c.87-2.6 3.3-4.53 6.16-4.53z"
+                />
+              </svg>
+              <span>Continue with Google</span>
+            </button>
 
             <button
               type="button"
@@ -393,7 +498,7 @@ export default function App() {
       <footer className="w-full bg-slate-900 border-t border-slate-800 py-6 shrink-0 mt-auto">
         <div className="mx-auto max-w-7xl px-4 text-center">
           <p className="text-[10px] font-mono text-slate-400">
-            Maurya Collections &copy; 2026 &bull; Real-time rural clothing trucks ledger system &bull; Fully Responsive Edition
+            Maurya Collections &copy; 2026
           </p>
         </div>
       </footer>
