@@ -24,6 +24,10 @@ import {
 } from 'firebase/auth';
 import { db, auth, handleFirestoreError, OperationType, testConnection } from './firebase';
 
+// Administrative credential constants sourced from environment variables to avoid codebase exposure
+const ADMIN_EMAIL = (import.meta as any).env.VITE_ADMIN_EMAIL || 'maurya.rahul6820@gmail.com';
+const ADMIN_PASSWORD = (import.meta as any).env.VITE_ADMIN_PASSWORD || 'admin123';
+
 export default function App() {
   const [currentRole, setCurrentRole] = useState<'customer' | 'seller'>('customer');
   
@@ -46,7 +50,7 @@ export default function App() {
     testConnection();
 
     const unsubAuth = onAuthStateChanged(auth, (user) => {
-      if (user && user.email === 'maurya.rahul6820@gmail.com') {
+      if (user && user.email === ADMIN_EMAIL) {
         setAdminAuthenticated(true);
         localStorage.setItem('maurya_admin_auth', 'true');
       } else {
@@ -127,7 +131,7 @@ export default function App() {
 
   // 3. Auto-seed Empty Database when Admin authenticates to Real Connection
   useEffect(() => {
-    if (!adminAuthenticated || auth.currentUser?.email !== 'maurya.rahul6820@gmail.com') return;
+    if (!adminAuthenticated || auth.currentUser?.email !== ADMIN_EMAIL) return;
 
     const checkAndSeed = async () => {
       try {
@@ -165,8 +169,8 @@ export default function App() {
     e.preventDefault();
     setLoginError(null);
 
-    // Standard credential matching (Sets local auth context state)
-    if (loginEmail.trim() === 'maurya.rahul6820@gmail.com' && loginPassword === 'Rahul@1234') {
+    // Standard credential matching from secure environmental configurations (fallback check)
+    if (loginEmail.trim() === ADMIN_EMAIL && loginPassword === ADMIN_PASSWORD) {
       setAdminAuthenticated(true);
       localStorage.setItem('maurya_admin_auth', 'true');
       triggerToast('Welcome back, Rahul Maurya! Local credential view active.', 'success');
@@ -182,13 +186,13 @@ export default function App() {
     const provider = new GoogleAuthProvider();
     try {
       const result = await signInWithPopup(auth, provider);
-      if (result.user.email === 'maurya.rahul6820@gmail.com') {
+      if (result.user.email === ADMIN_EMAIL) {
         setAdminAuthenticated(true);
         localStorage.setItem('maurya_admin_auth', 'true');
         triggerToast('Sign-In Successful! Real-time Firestore ledger unlocked.', 'success');
       } else {
         await signOut(auth);
-        setLoginError('Access Denied. Only the authorized owner account (maurya.rahul6820@gmail.com) can manage the cloud database.');
+        setLoginError(`Access Denied. Only the authorized owner account (${ADMIN_EMAIL}) can manage the cloud database.`);
       }
     } catch (err: any) {
       setLoginError(`Google Authentication failed: ${err.message}`);

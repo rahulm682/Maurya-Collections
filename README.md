@@ -16,8 +16,8 @@ Maurya Collections is a dual-perspective digital catalog and reservation pipelin
 
 ### 💼 Seller Terminal (Admin Management Portal)
 - **Secure Dual Authentication**:
-  - **Google Sign-In integration**: Authorizes the system administrator (`maurya.rahul6820@gmail.com`) to connect with cloud database permissions.
-  - **Credential Fallback Mode**: Permits access using designated secure credentials (`Rahul@1234`) for local operations.
+  - **Google Sign-In integration**: Authorizes the designated administrator account to connect with cloud database permissions.
+  - **Credential Fallback Mode**: Permits access using secure administrator credentials for local operations.
 - **Product Catalog Customization**:
   - Add newly launched apparel models with detailed descriptors, sizing ranges, prices, and high-quality image links.
   - Instantly toggle styles as **Listed** or **Unlisted** to hide or reveal them from client sight.
@@ -93,7 +93,7 @@ The persistent database operates securely with the following access controls:
 - **`products` collection**:
   - *Public Reads*: Allowed to accommodate guest customer catalog viewing.
   - *Public Updates*: Restricted to updating only the `likes` attribute value to prevent pricing tampering.
-  - *Creates / Deletes*: Strictly restricted to the authorized ledger administrator account (`maurya.rahul6820@gmail.com`).
+  - *Creates / Deletes*: Strictly restricted to the authorized ledger administrator account.
 - **`requests` collection**:
   - *Public Creates*: Allowed to let users place and send apparel custom requests.
   - *Updates / Deletes*: Restricted to the authenticated administrator to secure transaction integrity.
