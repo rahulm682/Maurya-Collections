@@ -16,6 +16,7 @@ interface ProductDetailsModalProps {
   requests?: CustomerRequest[];
   onToggleStatus?: (productId: string, newStatus: 'listed' | 'unlisted') => void;
   onDeleteProduct?: (productId: string) => void;
+  onEditProduct?: (product: Product) => void;
   isInline?: boolean;
 }
 
@@ -29,6 +30,7 @@ export default function ProductDetailsModal({
   requests = [],
   onToggleStatus,
   onDeleteProduct,
+  onEditProduct,
   isInline = false
 }: ProductDetailsModalProps) {
   const [activeImageIndex, setActiveImageIndex] = useState(0);
@@ -305,9 +307,9 @@ ${getShareUrl()}`;
                     <button
                       type="button"
                       onClick={() => onToggleStatus(product.id, (product.status || 'listed') === 'listed' ? 'unlisted' : 'listed')}
-                      className={`flex-1 py-2 px-3 text-[9px] font-bold uppercase tracking-widest text-center transition-colors cursor-pointer flex justify-center items-center gap-1.5 border ${
+                      className={`flex-grow py-2 px-3 text-[9px] font-bold uppercase tracking-widest text-center transition-colors cursor-pointer flex justify-center items-center gap-1.5 border ${
                         product.status === 'listed'
-                          ? 'bg-zinc-100 border-zinc-350 text-zinc-700 hover:bg-zinc-200'
+                          ? 'bg-zinc-105 border-zinc-350 text-zinc-700 hover:bg-zinc-200'
                           : 'bg-zinc-950 border-zinc-900 text-white hover:bg-zinc-850'
                       }`}
                     >
@@ -322,6 +324,17 @@ ${getShareUrl()}`;
                           <span>Publish Publicly</span>
                         </>
                       )}
+                    </button>
+                  )}
+
+                  {onEditProduct && (
+                    <button
+                      type="button"
+                      onClick={() => onEditProduct(product)}
+                      className="flex-grow py-2 px-3 text-[9px] font-bold uppercase tracking-widest text-center transition-colors cursor-pointer flex justify-center items-center gap-1.5 border bg-white border-zinc-900 text-zinc-950 hover:bg-zinc-50"
+                    >
+                      <Sparkles className="h-3 w-3 text-zinc-500" />
+                      <span>Edit Style</span>
                     </button>
                   )}
 

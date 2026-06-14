@@ -11,9 +11,18 @@ import {
   signInWithPopup, 
   GoogleAuthProvider, 
   signOut, 
-  onAuthStateChanged 
+  onAuthStateChanged,
+  signInWithEmailAndPassword
 } from 'firebase/auth';
-import { auth } from './firebase';
+import { auth, db, handleFirestoreError, OperationType } from './firebase';
+import { 
+  collection, 
+  getDocs, 
+  doc, 
+  setDoc, 
+  updateDoc, 
+  deleteDoc 
+} from 'firebase/firestore';
 
 // Administrative credential constants sourced from environment variables to avoid codebase exposure
 const ADMIN_EMAIL = (import.meta as any).env.VITE_ADMIN_EMAIL || 'maurya.rahul6820@gmail.com';
@@ -66,28 +75,68 @@ export default function App() {
   const [loginPassword, setLoginPassword] = useState('');
   const [loginError, setLoginError] = useState<string | null>(null);
 
-  // Helper to fetch products and requests from current server instance
+  // Helper to fetch products and requests directly from secure Firestore (Serverless Client-Secure Architecture)
   const fetchAllData = async () => {
+    // 1. Fetch products direct from Firestore (Public read allowed by security rules)
     try {
-      const prodRes = await fetch('/api/products');
-      if (prodRes.ok) {
-        const prodData = await prodRes.json();
-        setProducts(prodData);
-        localStorage.setItem('cached_products', JSON.stringify(prodData));
+      const snapshot = await getDocs(collection(db, 'products'));
+      const fetchedSec: Product[] = [];
+      snapshot.forEach((d) => {
+        fetchedSec.push(d.data() as Product);
+      });
+      if (fetchedSec.length > 0) {
+        // Render updated products catalog from Cloud Source-Of-Truth
+        setProducts(fetchedSec);
+        localStorage.setItem('cached_products', JSON.stringify(fetchedSec));
+      } else {
+        // If Firestore is empty, initialize catalog with static seeds for first run
+        setProducts(INITIAL_PRODUCTS);
+        localStorage.setItem('cached_products', JSON.stringify(INITIAL_PRODUCTS));
       }
-    } catch (e) {
-      console.warn("Fallback default products read under connectivity limit:", e);
+    } catch (err) {
+      console.warn("Direct Firestore products read failed. Falling back to local storage:", err);
+      const cached = localStorage.getItem('cached_products');
+      if (cached) {
+        try {
+          setProducts(JSON.parse(cached));
+        } catch (e) {
+          setProducts(INITIAL_PRODUCTS);
+        }
+      } else {
+        setProducts(INITIAL_PRODUCTS);
+      }
     }
 
-    try {
-      const reqRes = await fetch('/api/requests');
-      if (reqRes.ok) {
-        const reqData = await reqRes.json();
-        setRequests(reqData);
-        localStorage.setItem('cached_requests', JSON.stringify(reqData));
+    // 2. Fetch requests direct from Firestore (ONLY for approved Administrator to avoid public access rule rejections)
+    if (adminAuthenticated) {
+      try {
+        const snapshot = await getDocs(collection(db, 'requests'));
+        const fetchedReqs: CustomerRequest[] = [];
+        snapshot.forEach((d) => {
+          fetchedReqs.push(d.data() as CustomerRequest);
+        });
+        setRequests(fetchedReqs);
+        localStorage.setItem('cached_requests', JSON.stringify(fetchedReqs));
+      } catch (err: any) {
+        if (err.code === 'permission-denied' || String(err).includes('permission')) {
+          console.warn("Direct admin requests sync failed due to active Firebase rule protection:", err);
+        } else {
+          console.error("Direct Firestore requests read failed:", err);
+        }
+        handleFirestoreError(err, OperationType.LIST, 'requests');
       }
-    } catch (e) {
-      console.warn("Fallback default requests read under connectivity limit:", e);
+    } else {
+      // Offline/local cache access for regular guests
+      const cached = localStorage.getItem('cached_requests');
+      if (cached) {
+        try {
+          setRequests(JSON.parse(cached));
+        } catch (e) {
+          setRequests([]);
+        }
+      } else {
+        setRequests([]);
+      }
     }
   };
 
@@ -151,19 +200,36 @@ export default function App() {
   };
 
   // Auth Handlers (Credential mode and Google DB Auth)
-  const handleAdminSignIn = (e: React.FormEvent) => {
+  const handleAdminSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoginError(null);
 
-    // Standard credential matching from secure environmental configurations (fallback check)
-    if (loginEmail.trim() === ADMIN_EMAIL && loginPassword === ADMIN_PASSWORD) {
-      setAdminAuthenticated(true);
-      localStorage.setItem('maurya_admin_auth', 'true');
-      triggerToast('Welcome back, Rahul Maurya! Local credential view active.', 'success');
-      setLoginEmail('');
-      setLoginPassword('');
-    } else {
-      setLoginError('Invalid Administrator credentials. Please verify your email and password.');
+    // 1. First, try authentication securely via Firebase Auth using email & password
+    try {
+      const credentials = await signInWithEmailAndPassword(auth, loginEmail.trim(), loginPassword);
+      if (credentials.user.email === ADMIN_EMAIL) {
+        setAdminAuthenticated(true);
+        localStorage.setItem('maurya_admin_auth', 'true');
+        triggerToast('Welcome back, Rahul Maurya! Fully authenticated cloud database ledger active.', 'success');
+        setLoginEmail('');
+        setLoginPassword('');
+      } else {
+        await signOut(auth);
+        setLoginError(`Access Denied! Account is not matching registered administrator (${ADMIN_EMAIL}) address.`);
+      }
+    } catch (firebaseErr: any) {
+      console.warn("Firebase native email/password sign-in failed, checking static fallback local schema:", firebaseErr);
+      
+      // 2. Gracious local-only fallback for offline testing or pre-configured local users
+      if (loginEmail.trim() === ADMIN_EMAIL && loginPassword === ADMIN_PASSWORD) {
+        setAdminAuthenticated(true);
+        localStorage.setItem('maurya_admin_auth', 'true');
+        triggerToast('Welcome back, Rahul Maurya! Local credential view active (Offline/Bypassed Sync).', 'info');
+        setLoginEmail('');
+        setLoginPassword('');
+      } else {
+        setLoginError(`Invalid Administrator credentials: ${firebaseErr.message || 'Please check email and password values.'}`);
+      }
     }
   };
 
@@ -216,18 +282,14 @@ export default function App() {
     localStorage.setItem('cached_requests', JSON.stringify(nextRequests));
 
     try {
-      const response = await fetch('/api/requests', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(request)
-      });
-      if (!response.ok) throw new Error('Unsuccessful status returned by server');
+      // Direct Firestore write for zero-delay instant synchronization
+      await setDoc(doc(db, 'requests', request.id), request);
       triggerToast(`Thanks ${newReq.customerName}! Saved for verification.`);
-    } catch (e: any) {
-      console.warn("Server-side write bypassed: fallback offline ledger active. Error:", e);
-      triggerToast(`Thanks ${newReq.customerName}! Saved to offline ledger (Cloud Sync Status: Offline).`, 'info');
+      fetchAllData();
+    } catch (err: any) {
+      console.error("Direct Firestore request write failed:", err);
+      triggerToast(`Saved to locally cached ledger. Cloud registration requires online database access.`, 'info');
+      handleFirestoreError(err, OperationType.CREATE, `requests/${request.id}`);
     }
   };
 
@@ -259,16 +321,11 @@ export default function App() {
     localStorage.setItem('cached_products', JSON.stringify(updatedProducts));
 
     try {
-      const response = await fetch(`/api/products/${productId}/like`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ likes: nextLikesCount })
-      });
-      if (!response.ok) throw new Error('Unsuccessful like write');
-    } catch (e) {
-      console.warn("Failed syncing likes count directly, likely offline or permission limit. Fallback locally.");
+      // Direct Firestore update bypasses slow proxy servers completely
+      await updateDoc(doc(db, 'products', productId), { likes: nextLikesCount });
+    } catch (err: any) {
+      console.error("Direct Firestore like sync failed:", err);
+      handleFirestoreError(err, OperationType.UPDATE, `products/${productId}`);
     }
   };
 
@@ -283,53 +340,81 @@ export default function App() {
     };
 
     try {
-      const response = await fetch('/api/products', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(product)
-      });
-      if (!response.ok) throw new Error('Style rejected by server');
+      // Write direct to secured cloud database catalog
+      await setDoc(doc(db, 'products', product.id), product);
       triggerToast(`Created style "${newProd.name}" successfully!`);
       fetchAllData();
-    } catch (e: any) {
-      console.warn("Error adding product style:", e);
-      triggerToast(`Failed to add style over server endpoint.`, 'info');
+    } catch (err: any) {
+      console.error("Direct Firestore product write failed:", err);
+      triggerToast(`Failed to add style to Cloud inventory.`, 'info');
+      handleFirestoreError(err, OperationType.CREATE, `products/${product.id}`);
     }
   };
 
   // 4. Admin toggles if an item is listed or unlisted
   const handleToggleProductStatus = async (productId: string, newStatus: 'listed' | 'unlisted') => {
     try {
-      const response = await fetch(`/api/products/${productId}/status`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ status: newStatus })
-      });
-      if (!response.ok) throw new Error('Status rejected by server');
+      // Update listing status directly in secured Cloud Inventory catalog
+      await updateDoc(doc(db, 'products', productId), { status: newStatus });
       triggerToast(`Product listing status set to ${newStatus}`);
       fetchAllData();
-    } catch (e) {
-      console.warn("Error updating product status:", e);
-      triggerToast(`Failed to update listing status over server.`, 'info');
+    } catch (err: any) {
+      console.error("Direct Firestore status toggle update failed:", err);
+      triggerToast(`Failed to update listing status on Cloud database.`, 'info');
+      handleFirestoreError(err, OperationType.UPDATE, `products/${productId}`);
     }
   };
 
   // 5. Admin completely deletes product from inventory database
   const handleDeleteProduct = async (productId: string) => {
+    // Optimistically update products and requests state to make UI super snappy
+    const nextProducts = products.filter(p => p.id !== productId);
+    const nextRequests = requests.filter(r => r.productId !== productId);
+    
+    setProducts(nextProducts);
+    setRequests(nextRequests);
+    localStorage.setItem('cached_products', JSON.stringify(nextProducts));
+    localStorage.setItem('cached_requests', JSON.stringify(nextRequests));
+
     try {
-      const response = await fetch(`/api/products/${productId}`, {
-        method: 'DELETE'
-      });
-      if (!response.ok) throw new Error('Style delete rejected by server');
-      triggerToast('Product style fully deleted from inventory ledger.');
+      // Find related requests to delete at the database level
+      const relatedRequests = requests.filter(r => r.productId === productId);
+      
+      // Remove product style document from Firestore directly
+      await deleteDoc(doc(db, 'products', productId));
+      
+      // Delete all related requests in Firestore
+      if (relatedRequests.length > 0) {
+        await Promise.all(relatedRequests.map(r => deleteDoc(doc(db, 'requests', r.id))));
+        triggerToast(`Style and ${relatedRequests.length} associated customer request(s) fully deleted.`);
+      } else {
+        triggerToast('Product style fully deleted from inventory ledger.');
+      }
+      
       fetchAllData();
-    } catch (e) {
-      console.warn("Error deleting product:", e);
-      triggerToast(`Failed to delete product style over server.`, 'info');
+    } catch (err: any) {
+      console.error("Direct Firestore product deletion failed:", err);
+      triggerToast(`Failed to complete cascade delete from Cloud.`, 'info');
+      handleFirestoreError(err, OperationType.DELETE, `products/${productId}`);
+    }
+  };
+
+  // 5.5 Admin updates product details in inventory database
+  const handleUpdateProduct = async (updatedProduct: Product) => {
+    // Optimistically update state
+    const nextProducts = products.map(p => p.id === updatedProduct.id ? updatedProduct : p);
+    setProducts(nextProducts);
+    localStorage.setItem('cached_products', JSON.stringify(nextProducts));
+
+    try {
+      // Direct Firestore document set to update the secure Cloud database catalog
+      await setDoc(doc(db, 'products', updatedProduct.id), updatedProduct);
+      triggerToast(`Updated style "${updatedProduct.name}" successfully!`);
+      fetchAllData();
+    } catch (err: any) {
+      console.error("Direct Firestore product update failed:", err);
+      triggerToast(`Failed to update styling catalog on Cloud database.`, 'info');
+      handleFirestoreError(err, OperationType.UPDATE, `products/${updatedProduct.id}`);
     }
   };
 
@@ -344,19 +429,14 @@ export default function App() {
     localStorage.setItem('cached_requests', JSON.stringify(nextRequests));
 
     try {
-      const response = await fetch(`/api/requests/${requestId}/status`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ status: newStatus })
-      });
-      if (!response.ok) throw new Error('Request status rejected by server');
+      // Update request status field inside Cloud database directly
+      await updateDoc(doc(db, 'requests', requestId), { status: newStatus });
       triggerToast(`Order for ${targetRequest.customerName} marked ${newStatus}`);
       fetchAllData();
-    } catch (e) {
-      console.warn("Direct requests state sync updated locally/offline.");
-      triggerToast(`Order status updated.`, 'success');
+    } catch (err: any) {
+      console.error("Direct Firestore request status update failed:", err);
+      triggerToast(`Failed to update order status on Cloud.`, 'info');
+      handleFirestoreError(err, OperationType.UPDATE, `requests/${requestId}`);
     }
   };
 
@@ -371,15 +451,14 @@ export default function App() {
     localStorage.setItem('cached_requests', JSON.stringify(nextRequests));
 
     try {
-      const response = await fetch(`/api/requests/${requestId}`, {
-        method: 'DELETE'
-      });
-      if (!response.ok) throw new Error('Request delete rejected by server');
+      // Delete reservation document directly from secured Firestore Match collection
+      await deleteDoc(doc(db, 'requests', requestId));
       triggerToast(`Deleted request from collections stream`);
       fetchAllData();
-    } catch (e) {
-      console.warn("Direct request delete state synced locally/offline.");
-      triggerToast(`Deleted request successfully.`);
+    } catch (err: any) {
+      console.error("Direct Firestore request deletion failed:", err);
+      triggerToast(`Failed to delete request from Cloud.`, 'info');
+      handleFirestoreError(err, OperationType.DELETE, `requests/${requestId}`);
     }
   };
 
@@ -400,6 +479,11 @@ export default function App() {
               <p className="text-[10px] font-sans tracking-wide text-zinc-500 uppercase leading-relaxed max-w-[280px] mx-auto">
                 Authorized owners catalog management and village truck logistics.
               </p>
+              <div className="mt-2 text-center">
+                <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-none text-[8px] font-mono font-medium bg-emerald-50 text-emerald-700 border border-emerald-200 uppercase tracking-wider">
+                  ● Serverless Cloud Shield Active
+                </span>
+              </div>
             </div>
 
             {loginError && (
@@ -444,20 +528,20 @@ export default function App() {
                 id="btn-admin-login-submit"
                 className="w-full py-2.5 bg-zinc-950 hover:bg-zinc-800 text-white text-[10px] font-bold uppercase tracking-widest rounded-none transition-all shadow-xs cursor-pointer"
               >
-                Sign In to Ledger (Offline View)
+                Sign In to Ledger (Offline / Email Mode)
               </button>
             </form>
 
             <div className="flex items-center justify-between gap-3 py-1">
               <span className="h-[1px] bg-zinc-200 flex-1"></span>
-              <span className="text-[8px] font-bold text-zinc-400 uppercase tracking-widest shrink-0">OR</span>
+              <span className="text-[8px] font-bold text-zinc-400 uppercase tracking-widest shrink-0">OR PREFER</span>
               <span className="h-[1px] bg-zinc-200 flex-1"></span>
             </div>
 
             <button
               type="button"
               onClick={handleGoogleSignIn}
-              className="w-full py-2.5 border border-zinc-200 hover:bg-zinc-50 text-zinc-800 text-[10px] font-bold uppercase tracking-widest rounded-none transition-all flex items-center justify-center gap-2.5 cursor-pointer bg-white"
+              className="w-full py-2.5 border border-zinc-900 hover:bg-zinc-550 active:scale-[0.99] text-zinc-900 text-[10px] font-bold uppercase tracking-widest rounded-none transition-all flex items-center justify-center gap-2.5 cursor-pointer bg-amber-500/10 hover:bg-amber-500/20 border-dashed"
             >
               <svg className="h-3.5 w-3.5 shrink-0" viewBox="0 0 24 24">
                 <path
@@ -477,8 +561,11 @@ export default function App() {
                   d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.85c.87-2.6 3.3-4.53 6.16-4.53z"
                 />
               </svg>
-              <span>Continue with Google</span>
+              <span>Google Federated Auth (Recommended)</span>
             </button>
+            <p className="text-[8px] font-mono text-zinc-400 text-center leading-relaxed">
+              * Note: Google authentication is recommended to satisfy strict active Firebase Rules and secure live sync.
+            </p>
 
             <button
               type="button"
@@ -514,6 +601,7 @@ export default function App() {
               onAddProduct={handleAddProduct}
               onToggleProductStatus={handleToggleProductStatus}
               onDeleteProduct={handleDeleteProduct}
+              onUpdateProduct={handleUpdateProduct}
               onUpdateRequestStatus={handleUpdateRequestStatus}
               onAllocateRequestStock={handleAllocateRequestStock}
               onDeleteRequest={handleDeleteRequest}

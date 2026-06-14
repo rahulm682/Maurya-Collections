@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import CreateProductModal from './CreateProductModal';
 import ProductDetailsModal from './ProductDetailsModal';
+import EditProductModal from './EditProductModal';
 
 interface SellerViewProps {
   products: Product[];
@@ -16,6 +17,7 @@ interface SellerViewProps {
   onAddProduct: (product: Omit<Product, 'id' | 'likes'>) => void;
   onToggleProductStatus: (productId: string, newStatus: 'listed' | 'unlisted') => void;
   onDeleteProduct: (productId: string) => void;
+  onUpdateProduct: (product: Product) => void;
   onUpdateRequestStatus: (requestId: string, newStatus: CustomerRequest['status']) => void;
   onAllocateRequestStock: (requestId: string) => void;
   onDeleteRequest: (requestId: string) => void;
@@ -29,6 +31,7 @@ export default function SellerView({
   onAddProduct,
   onToggleProductStatus,
   onDeleteProduct,
+  onUpdateProduct,
   onUpdateRequestStatus,
   onAllocateRequestStock,
   onDeleteRequest,
@@ -43,6 +46,7 @@ export default function SellerView({
   
   // Details Modal selection/view state
   const [selectedProductForDetails, setSelectedProductForDetails] = useState<Product | null>(null);
+  const [editingProduct, setEditingProduct] = useState<Product | null>(null);
 
   // Village filtering for requests
   const [selectedVillageFilter, setSelectedVillageFilter] = useState<string>('All');
@@ -652,6 +656,38 @@ export default function SellerView({
               onToggleStatus={onToggleProductStatus}
               onDeleteProduct={onDeleteProduct}
               isInline={true}
+              onEditProduct={(p) => {
+                setEditingProduct(p);
+                setSelectedProductForDetails(null);
+              }}
+            />
+          </div>
+        ) : editingProduct ? (
+          <div id="inline-edit-product-form" className="space-y-6 text-left animate-fade-in w-full">
+            {/* Back Navigation Bar */}
+            <div className="flex items-center justify-between border-b border-zinc-200 pb-4 mb-4">
+              <button
+                type="button"
+                onClick={() => setEditingProduct(null)}
+                className="group py-2 px-4 border border-zinc-200 hover:border-zinc-950 hover:bg-zinc-50 text-[10px] font-bold uppercase tracking-widest text-zinc-805 transition-all flex items-center gap-2 cursor-pointer"
+              >
+                <ChevronLeft className="h-4 w-4 transition-transform group-hover:-translate-x-0.5" />
+                <span>Back to Catalog</span>
+              </button>
+              <span className="text-[10px] text-zinc-400 font-mono tracking-wider uppercase font-bold">
+                📍 EDIT STYLE DETAILS
+              </span>
+            </div>
+
+            <EditProductModal
+              isOpen={editingProduct !== null}
+              onClose={() => setEditingProduct(null)}
+              product={editingProduct}
+              onUpdateProduct={(prod) => {
+                onUpdateProduct(prod);
+                setEditingProduct(null);
+              }}
+              isInline={true}
             />
           </div>
         ) : showAddProductModal ? (
@@ -884,6 +920,15 @@ export default function SellerView({
                             }`}
                           >
                             {pStatus === 'listed' ? 'Unlist Draft' : 'Make Public'}
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => setEditingProduct(p)}
+                            className="py-1.5 px-3 bg-white border border-zinc-900 hover:bg-zinc-50 text-zinc-950 text-[9px] font-bold uppercase tracking-widest text-center transition-all cursor-pointer"
+                            title="Edit product details"
+                          >
+                            Edit
                           </button>
 
                           <button

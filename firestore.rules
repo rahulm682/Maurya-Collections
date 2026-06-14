@@ -11,15 +11,31 @@ service cloud.firestore {
       return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_-]+$');
     }
 
+    function isAdmin() {
+      return request.auth != null && 
+             request.auth.token.email == 'maurya.rahul6820@gmail.com' && 
+             request.auth.token.email_verified == true;
+    }
+
     // 1. PRODUCTS COLLECTION
     match /products/{productId} {
-      allow read: if true; // Public viewable
-      allow create, update, delete: if isValidId(productId); // Open read/write to products for server broker
+      allow read: if true; // Publicly viewable by any guest user
+      allow create, delete: if isAdmin() && isValidId(productId); // Only Admin can create or delete products
+      
+      // Admin can update everything. Guest users can ONLY increment/decrement the "likes" count
+      allow update: if isValidId(productId) && (
+        isAdmin() || 
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likes'])
+      );
     }
 
     // 2. REQUESTS COLLECTION
     match /requests/{requestId} {
-      allow read, write: if true; // Open read/write to requests for server broker and clients
+      // Guest customers can submit (create) new orders/requests
+      allow create: if isValidId(requestId);
+      
+      // Only the authenticated Administrator can read, update or delete/purge reservation requests
+      allow read, update, delete: if isAdmin();
     }
   }
 }
