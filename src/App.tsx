@@ -37,6 +37,21 @@ export default function App() {
   const [villages, setVillages] = useState<VillageRoute[]>([]);
   const [likedProductIds, setLikedProductIds] = useState<string[]>([]);
   const [uiNotification, setUiNotification] = useState<{ message: string; type: 'success' | 'info' } | null>(null);
+  const [deepLinkedProduct, setDeepLinkedProduct] = useState<Product | null>(null);
+
+  // Parse deep-link parameters once products catalog is retrieved
+  useEffect(() => {
+    if (products.length > 0) {
+      const params = new URLSearchParams(window.location.search);
+      const productId = params.get('product') || params.get('p');
+      if (productId) {
+        const found = products.find(p => p.id === productId);
+        if (found) {
+          setDeepLinkedProduct(found);
+        }
+      }
+    }
+  }, [products]);
 
   // Admin Logged-In Security State
   const [adminAuthenticated, setAdminAuthenticated] = useState<boolean>(false);
@@ -336,30 +351,32 @@ export default function App() {
 
   const pendingRequests = requests.filter(r => r.status === 'Pending');
 
-  // Core application layout view rendering inside device simulator or fluid layout
+  // Core application layout view rendering with beautiful editorial grids
   const renderCoreApplet = () => {
     // 1. If trying to access Seller panel and is not authenticated, show login gate first
     if (currentRole === 'seller' && !adminAuthenticated) {
       return (
-        <div className="py-8 px-4 flex-1 flex flex-col justify-center bg-slate-50 text-left">
-          <div className="max-w-xs mx-auto w-full space-y-5 bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
-            <div className="text-center space-y-2">
-              <div className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-amber-500/15 text-amber-600">
-                <Lock className="h-5.5 w-5.5" />
+        <div className="py-12 px-4 flex-1 flex flex-col justify-center text-left animate-fade-in">
+          <div className="max-w-sm mx-auto w-full space-y-6 bg-white p-8 rounded-none border border-zinc-200 shadow-sm">
+            <div className="text-center space-y-2.5">
+              <div className="inline-flex h-12 w-12 items-center justify-center rounded-none border border-zinc-250 bg-zinc-50 text-zinc-900">
+                <Lock className="h-4.5 w-4.5" />
               </div>
-              <h3 className="text-sm font-black text-slate-900 uppercase tracking-wide">Maurya Collections Secure Admin</h3>
-              <p className="text-[10px] text-slate-500">Only authorized owners can review reservations and coordinate truck logistics.</p>
+              <h3 className="font-serif text-base font-normal tracking-wider text-zinc-900 uppercase">Secure Atelier Portal</h3>
+              <p className="text-[10px] font-sans tracking-wide text-zinc-500 uppercase leading-relaxed max-w-[280px] mx-auto">
+                Authorized owners catalog management and village truck logistics.
+              </p>
             </div>
 
             {loginError && (
-              <div className="p-2.5 bg-rose-50 text-rose-850 font-semibold border border-rose-150 rounded-lg text-[10px] text-left leading-normal">
-                ⚠️ {loginError}
+              <div className="p-3 bg-rose-50/50 text-rose-800 font-medium border border-rose-100 rounded-none text-[10px] text-left leading-relaxed">
+                {loginError}
               </div>
             )}
 
-            <form onSubmit={handleAdminSignIn} className="space-y-3">
+            <form onSubmit={handleAdminSignIn} className="space-y-4">
               <div>
-                <label htmlFor="login-email" className="block text-[9px] font-bold text-slate-650 uppercase tracking-widest mb-1">
+                <label htmlFor="login-email" className="block text-[8px] font-bold text-zinc-500 uppercase tracking-widest mb-1.5">
                   Owner Email
                 </label>
                 <input
@@ -369,13 +386,13 @@ export default function App() {
                   placeholder="name@gmail.com"
                   value={loginEmail}
                   onChange={(e) => setLoginEmail(e.target.value)}
-                  className="block w-full rounded-lg border border-slate-205 py-1.5 px-2.5 text-xs text-slate-900 bg-slate-50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-slate-950 font-mono"
+                  className="block w-full rounded-none border border-zinc-200 py-2 px-3 text-xs text-zinc-900 bg-zinc-50/40 focus:bg-white focus:ring-1 focus:ring-zinc-900 focus:outline-none transition-all font-mono"
                 />
               </div>
 
               <div>
-                <label htmlFor="login-password" className="block text-[9px] font-bold text-slate-650 uppercase tracking-widest mb-1">
-                  Password
+                <label htmlFor="login-password" className="block text-[8px] font-bold text-zinc-500 uppercase tracking-widest mb-1.5">
+                  Security Password
                 </label>
                 <input
                   type="password"
@@ -384,29 +401,29 @@ export default function App() {
                   placeholder="••••••••"
                   value={loginPassword}
                   onChange={(e) => setLoginPassword(e.target.value)}
-                  className="block w-full rounded-lg border border-slate-205 py-1.5 px-2.5 text-xs text-slate-900 bg-slate-50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-slate-950"
+                  className="block w-full rounded-none border border-zinc-200 py-2 px-3 text-xs text-zinc-900 bg-zinc-50/40 focus:bg-white focus:ring-1 focus:ring-zinc-900 focus:outline-none transition-all"
                 />
               </div>
 
               <button
                 type="submit"
                 id="btn-admin-login-submit"
-                className="w-full py-2 bg-slate-900 hover:bg-slate-800 text-white text-[10px] font-black uppercase tracking-widest rounded-xl transition-all shadow cursor-pointer"
+                className="w-full py-2.5 bg-zinc-950 hover:bg-zinc-800 text-white text-[10px] font-bold uppercase tracking-widest rounded-none transition-all shadow-xs cursor-pointer"
               >
                 Sign In to Ledger (Offline View)
               </button>
             </form>
 
-            <div className="flex items-center justify-between gap-2 py-1">
-              <span className="h-px bg-slate-200 flex-1"></span>
-              <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider shrink-0">OR</span>
-              <span className="h-px bg-slate-200 flex-1"></span>
+            <div className="flex items-center justify-between gap-3 py-1">
+              <span className="h-[1px] bg-zinc-200 flex-1"></span>
+              <span className="text-[8px] font-bold text-zinc-400 uppercase tracking-widest shrink-0">OR</span>
+              <span className="h-[1px] bg-zinc-200 flex-1"></span>
             </div>
 
             <button
               type="button"
               onClick={handleGoogleSignIn}
-              className="w-full py-2 border border-slate-200 hover:bg-slate-50 text-slate-800 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all shadow-sm flex items-center justify-center gap-2 cursor-pointer bg-white"
+              className="w-full py-2.5 border border-zinc-200 hover:bg-zinc-50 text-zinc-800 text-[10px] font-bold uppercase tracking-widest rounded-none transition-all flex items-center justify-center gap-2.5 cursor-pointer bg-white"
             >
               <svg className="h-3.5 w-3.5 shrink-0" viewBox="0 0 24 24">
                 <path
@@ -432,7 +449,7 @@ export default function App() {
             <button
               type="button"
               onClick={() => setCurrentRole('customer')}
-              className="text-center block w-full text-[9px] font-bold text-indigo-650 hover:underline py-1"
+              className="text-center block w-full text-[9px] font-bold text-zinc-500 hover:text-zinc-950 transition-colors uppercase tracking-widest underline py-1"
             >
               ← Back to Customer Catalog
             </button>
@@ -445,16 +462,17 @@ export default function App() {
     return (
       <div className="flex-grow overflow-x-hidden flex flex-col">
         {currentRole === 'customer' ? (
-          <div className="px-4 flex-grow">
+          <div className="flex-grow animate-fade-in">
             <CustomerView
               products={products}
               onAddRequest={handleAddRequest}
               onLikeProduct={handleLikeProduct}
               likedProductIds={likedProductIds}
+              deepLinkedProduct={deepLinkedProduct}
             />
           </div>
         ) : (
-          <div className="px-4 flex-grow">
+          <div className="flex-grow animate-fade-in">
             <SellerView
               products={products}
               requests={requests}
@@ -465,6 +483,7 @@ export default function App() {
               onUpdateRequestStatus={handleUpdateRequestStatus}
               onAllocateRequestStock={handleAllocateRequestStock}
               onDeleteRequest={handleDeleteRequest}
+              deepLinkedProduct={deepLinkedProduct}
             />
           </div>
         )}
@@ -473,7 +492,7 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col font-sans selection:bg-slate-900 selection:text-amber-400 antialiased">
+    <div className="min-h-screen bg-[#FAF9F6] flex flex-col font-sans selection:bg-zinc-950 selection:text-white antialiased">
       
       {/* Dynamic Responsive Navigation Header */}
       <Header
@@ -486,24 +505,33 @@ export default function App() {
 
       {/* Global Toast Alerts */}
       {uiNotification && (
-        <div className="fixed top-4 right-4 z-50 flex items-center space-x-2 rounded-xl bg-slate-950 px-3.5 py-2.5 text-[11px] font-bold text-white shadow-2xl animate-slide-up border border-slate-800">
-          <CheckCircle2 className="h-4 w-4 text-amber-400 shrink-0" />
+        <div className="fixed bottom-6 right-6 z-50 flex items-center space-x-2.5 rounded-none bg-zinc-950 px-4 py-3 text-[10px] font-semibold text-white tracking-wider uppercase shadow-xl animate-fade-in border border-zinc-800">
+          <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0" />
           <span>{uiNotification.message}</span>
         </div>
       )}
 
       {/* Primary Responsive Content Stage */}
-      <div className="flex-grow w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-        
+      <main className="flex-grow w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {renderCoreApplet()}
-      </div>
+      </main>
 
       {/* Elegant minimalist footer */}
-      <footer className="w-full bg-slate-900 border-t border-slate-800 py-6 shrink-0 mt-auto">
-        <div className="mx-auto max-w-7xl px-4 text-center">
-          <p className="text-[10px] font-mono text-slate-400">
-            Maurya Collections &copy; 2026
-          </p>
+      <footer className="w-full bg-white border-t border-zinc-200/60 py-8 shrink-0 mt-auto">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+            <div className="text-center sm:text-left">
+              <p className="font-serif text-sm font-normal tracking-[0.15em] text-zinc-900 uppercase">
+                Maurya Collections
+              </p>
+              <p className="text-[9px] font-mono tracking-widest text-zinc-400 uppercase mt-0.5">
+                Premium Mobile Sourcing &amp; Curated Style
+              </p>
+            </div>
+            <p className="text-[9px] font-mono tracking-widest text-zinc-400 uppercase">
+              &copy; {new Date().getFullYear()} MAURYA COLLECTIONS. ALL RIGHTS RESERVED.
+            </p>
+          </div>
         </div>
       </footer>
     </div>

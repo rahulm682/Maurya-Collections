@@ -1,11 +1,13 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Product, CustomerRequest, VillageRoute, AgeGroup } from '../types';
 import { 
   Plus, Search, Check, Minus, RefreshCw, MapPin, 
   AlertTriangle, Truck, Trash2, Package, Tag, 
-  IndianRupee, PhoneCall, Mail, Layers, Calendar, HelpCircle
+  IndianRupee, PhoneCall, Mail, Layers, Calendar, HelpCircle,
+  ChevronLeft, ChevronRight
 } from 'lucide-react';
 import CreateProductModal from './CreateProductModal';
+import ProductDetailsModal from './ProductDetailsModal';
 
 interface SellerViewProps {
   products: Product[];
@@ -17,6 +19,7 @@ interface SellerViewProps {
   onUpdateRequestStatus: (requestId: string, newStatus: CustomerRequest['status']) => void;
   onAllocateRequestStock: (requestId: string) => void;
   onDeleteRequest: (requestId: string) => void;
+  deepLinkedProduct?: Product | null;
 }
 
 export default function SellerView({
@@ -28,7 +31,8 @@ export default function SellerView({
   onDeleteProduct,
   onUpdateRequestStatus,
   onAllocateRequestStock,
-  onDeleteRequest
+  onDeleteRequest,
+  deepLinkedProduct
 }: SellerViewProps) {
   const [currentTab, setCurrentTab] = useState<'requests' | 'routes' | 'products'>('requests');
   
@@ -37,8 +41,32 @@ export default function SellerView({
   const [statusFilter, setStatusFilter] = useState<'all' | 'listed' | 'unlisted'>('all');
   const [sortBy, setSortBy] = useState<'name' | 'requests' | 'likes' | 'villages'>('name');
   
+  // Details Modal selection/view state
+  const [selectedProductForDetails, setSelectedProductForDetails] = useState<Product | null>(null);
+
   // Village filtering for requests
   const [selectedVillageFilter, setSelectedVillageFilter] = useState<string>('All');
+
+  // High performance infinite scroll/lazy load states
+  const [visibleCount, setVisibleCount] = useState(12);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const observerTarget = React.useRef<HTMLDivElement>(null);
+
+  // High performance infinite scroll/lazy load states for demands
+  const [visibleRequestsCount, setVisibleRequestsCount] = useState(10);
+  const [isLoadingMoreRequests, setIsLoadingMoreRequests] = useState(false);
+  const requestsObserverTarget = React.useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setVisibleCount(12);
+    setVisibleRequestsCount(10);
+  }, [productSearch, statusFilter, sortBy, currentTab, selectedVillageFilter]);
+
+  useEffect(() => {
+    if (deepLinkedProduct) {
+      setSelectedProductForDetails(deepLinkedProduct);
+    }
+  }, [deepLinkedProduct]);
   
   // Add Product Form State
   const [showAddProductModal, setShowAddProductModal] = useState(false);
@@ -111,37 +139,119 @@ export default function SellerView({
     return listWithStats;
   }, [products, productSearch, statusFilter, sortBy, requests]);
 
+  useEffect(() => {
+    let timerId: any = null;
+
+    const checkScrollLoad = () => {
+      if (isLoadingMore || visibleCount >= filteredProductsList.length) return;
+      if (!observerTarget.current) return;
+
+      const rect = observerTarget.current.getBoundingClientRect();
+      // If the top of the sentinel is within 300px of the bottom of the viewport
+      if (rect.top <= window.innerHeight + 300 && rect.height > 0) {
+        setIsLoadingMore(true);
+        timerId = setTimeout(() => {
+          setVisibleCount((prev) => Math.min(prev + 8, filteredProductsList.length));
+          setIsLoadingMore(false);
+        }, 300);
+      }
+    };
+
+    // Check immediately on render
+    checkScrollLoad();
+
+    // Listen on multiple levels to catch all potential scroll events (window, document, or custom frame)
+    window.addEventListener('scroll', checkScrollLoad, { passive: true });
+    window.addEventListener('resize', checkScrollLoad);
+    document.addEventListener('scroll', checkScrollLoad, { passive: true });
+
+    // Ultimate fallback for sandboxed iframes where scroll events might not propagate: periodic layout checks
+    const intervalId = setInterval(checkScrollLoad, 300);
+
+    return () => {
+      window.removeEventListener('scroll', checkScrollLoad);
+      window.removeEventListener('resize', checkScrollLoad);
+      document.removeEventListener('scroll', checkScrollLoad);
+      clearInterval(intervalId);
+      if (timerId) {
+        clearTimeout(timerId);
+      }
+    };
+  }, [visibleCount, filteredProductsList.length, isLoadingMore, currentTab, showAddProductModal, selectedProductForDetails]);
+
+  useEffect(() => {
+    let timerId: any = null;
+
+    const checkRequestsScrollLoad = () => {
+      if (isLoadingMoreRequests || visibleRequestsCount >= filteredRequests.length) return;
+      if (!requestsObserverTarget.current) return;
+
+      const rect = requestsObserverTarget.current.getBoundingClientRect();
+      if (rect.top <= window.innerHeight + 300 && rect.height > 0) {
+        setIsLoadingMoreRequests(true);
+        timerId = setTimeout(() => {
+          setVisibleRequestsCount((prev) => Math.min(prev + 10, filteredRequests.length));
+          setIsLoadingMoreRequests(false);
+        }, 300);
+      }
+    };
+
+    checkRequestsScrollLoad();
+
+    window.addEventListener('scroll', checkRequestsScrollLoad, { passive: true });
+    window.addEventListener('resize', checkRequestsScrollLoad);
+    document.addEventListener('scroll', checkRequestsScrollLoad, { passive: true });
+
+    const intervalId = setInterval(checkRequestsScrollLoad, 300);
+
+    return () => {
+      window.removeEventListener('scroll', checkRequestsScrollLoad);
+      window.removeEventListener('resize', checkRequestsScrollLoad);
+      document.removeEventListener('scroll', checkRequestsScrollLoad);
+      clearInterval(intervalId);
+      if (timerId) {
+        clearTimeout(timerId);
+      }
+    };
+  }, [visibleRequestsCount, filteredRequests.length, isLoadingMoreRequests, currentTab]);
+
   return (
-    <div className="py-5">
+    <div className="py-6 font-sans">
       {/* Visual Analytics Counters */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8 text-left animate-fade-in">
         
-        <div className="bg-slate-900 text-white p-4 rounded-2xl border border-slate-800 shadow-xs text-left">
-          <div className="flex items-center justify-between">
-            <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Pending Route Orders</span>
-            <RefreshCw className="h-3 w-3 text-amber-400 animate-spin" style={{ animationDuration: '8s' }} />
+        <div className="bg-zinc-950 text-white p-6 rounded-none border border-zinc-900 shadow-sm flex flex-col justify-between">
+          <div>
+            <div className="flex items-center justify-between">
+              <span className="text-[9px] font-bold text-zinc-400 uppercase tracking-widest">Pending Demands Ledger</span>
+              <RefreshCw className="h-3 w-3 text-zinc-400 animate-spin" style={{ animationDuration: '6s' }} />
+            </div>
+            <p className="text-3xl font-mono font-semibold tracking-tight mt-2.5">
+              {requests.filter(r => r.status === 'Pending').length}
+            </p>
           </div>
-          <p className="text-2xl font-black mt-1">
-            {requests.filter(r => r.status === 'Pending').length}
-          </p>
-          <span className="text-[9px] font-bold text-amber-300 font-mono tracking-tighter uppercase">Needs Allocation</span>
+          <span className="text-[8px] font-bold text-zinc-400 font-mono tracking-wider uppercase mt-4 block">Waiting Route Packing</span>
         </div>
 
-        <div className="bg-white p-4 rounded-2xl border border-slate-150 shadow-xs text-left">
-          <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest block">Allocated on Routes</span>
-          <p className="text-2xl font-black mt-1 text-slate-900">
-            {requests.filter(r => r.status === 'Allocated').length}
-          </p>
-          <span className="text-[9px] font-bold text-emerald-600 font-mono tracking-tighter uppercase">Loaded in Truck</span>
+        <div className="bg-white p-6 rounded-none border border-zinc-200 shadow-sm flex flex-col justify-between">
+          <div>
+            <span className="text-[9px] font-bold text-zinc-400 uppercase tracking-widest block">Allocated on Route Trip</span>
+            <p className="text-3xl font-mono font-semibold tracking-tight mt-2.5 text-zinc-900">
+              {requests.filter(r => r.status === 'Allocated').length}
+            </p>
+          </div>
+          <span className="text-[8px] font-bold text-zinc-500 font-mono tracking-wider uppercase mt-4 block">Locked Inside Truck</span>
         </div>
 
-        <div className="bg-white p-4 rounded-2xl border border-slate-150 shadow-xs text-left">
-          <div className="flex items-center justify-between">
-            <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Active Stock Ledger</span>
-            <Package className="h-4.5 w-4.5 text-slate-400" />
+        <div className="bg-white p-6 rounded-none border border-zinc-200 shadow-sm flex flex-col justify-between">
+          <div>
+            <div className="flex items-center justify-between">
+              <span className="text-[9px] font-bold text-zinc-400 uppercase tracking-widest">Active Style Templates</span>
+              <Package className="h-4 w-4 text-zinc-450" />
+            </div>
+            <p className="text-3xl font-mono font-semibold tracking-tight mt-2.5 text-zinc-900">{products.length}</p>
           </div>
-          <p className="text-2xl font-black mt-1 text-slate-900">{products.length} Garments</p>
-          <span className="text-[9px] font-bold text-slate-450 font-mono">Mobile collection styles</span>
+          <span className="text-[8px] font-bold text-zinc-500 font-mono tracking-wider uppercase mt-4 block">Mobile Collection catalog</span>
         </div>
 
       </div>
@@ -191,39 +301,39 @@ export default function SellerView({
       )}
 
       {/* Navigation Sub-Tabs */}
-      <div className="mb-4 flex space-x-1 border-b border-slate-150 font-sans">
+      <div className="mb-6 flex space-x-1.5 border-b border-zinc-200 font-sans">
         <button
           type="button"
           onClick={() => setCurrentTab('requests')}
-          className={`pb-2.5 px-3 text-[11px] font-black uppercase tracking-wider relative ${
+          className={`pb-3 px-3.5 text-[10px] font-bold uppercase tracking-widest relative transition-all ${
             currentTab === 'requests'
-              ? 'text-slate-900 border-b-2 border-slate-900 font-extrabold'
-              : 'text-slate-450 hover:text-slate-900 font-bold'
+              ? 'text-zinc-950 border-b-2 border-zinc-950'
+              : 'text-zinc-400 hover:text-zinc-900'
           }`}
         >
-          Demands
+          Active Demands ({requests.length})
         </button>
         <button
           type="button"
           onClick={() => setCurrentTab('routes')}
-          className={`pb-2.5 px-3 text-[11px] font-black uppercase tracking-wider relative ${
+          className={`pb-3 px-3.5 text-[10px] font-bold uppercase tracking-widest relative transition-all ${
             currentTab === 'routes'
-              ? 'text-slate-900 border-b-2 border-slate-900 font-extrabold'
-              : 'text-slate-450 hover:text-slate-900 font-bold'
+              ? 'text-zinc-950 border-b-2 border-zinc-950'
+              : 'text-zinc-400 hover:text-zinc-900'
           }`}
         >
-          Visit Routes
+          Logistics Routes
         </button>
         <button
           type="button"
           onClick={() => setCurrentTab('products')}
-          className={`pb-2.5 px-3 text-[11px] font-black uppercase tracking-wider relative ${
+          className={`pb-3 px-3.5 text-[10px] font-bold uppercase tracking-widest relative transition-all ${
             currentTab === 'products'
-              ? 'text-slate-900 border-b-2 border-slate-900 font-extrabold'
-              : 'text-slate-450 hover:text-slate-900 font-bold'
+              ? 'text-zinc-950 border-b-2 border-zinc-950'
+              : 'text-zinc-400 hover:text-zinc-900'
           }`}
         >
-          Available Products
+          Atelier Styles Catalogue
         </button>
       </div>
 
@@ -232,30 +342,30 @@ export default function SellerView({
       {/* 1. Requests Area */}
       {currentTab === 'requests' && (
         <div className="space-y-4">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 bg-slate-50 p-3 border rounded-xl border-slate-150 text-left">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 bg-white p-5 border rounded-none border-zinc-205 text-left">
             <div>
-              <span className="text-[10px] font-black text-slate-500 uppercase block mb-1">Sort by Customer Village:</span>
-              <div className="flex flex-wrap gap-1">
+              <span className="text-[8px] font-bold text-zinc-400 uppercase tracking-widest block mb-2">Filter Routing Outlets:</span>
+              <div className="flex flex-wrap gap-1.5">
                 <button
                   type="button"
                   onClick={() => setSelectedVillageFilter('All')}
-                  className={`py-1 px-2.5 rounded text-[10px] font-black uppercase ${
+                  className={`py-1.5 px-3 rounded-none text-[9px] font-bold tracking-wider uppercase transition-colors uppercase ${
                     selectedVillageFilter === 'All'
-                      ? 'bg-slate-900 text-amber-400'
-                      : 'bg-white border text-slate-600 hover:bg-slate-50'
+                      ? 'bg-zinc-950 text-white'
+                      : 'bg-zinc-50 border border-zinc-200 text-zinc-650 hover:bg-zinc-100'
                   }`}
                 >
-                  All Inputs
+                  All Demands
                 </button>
                 {submissionVillages.map((v) => (
                   <button
                     key={v}
                     type="button"
                     onClick={() => setSelectedVillageFilter(v)}
-                    className={`py-1 px-2.5 rounded text-[10px] font-bold ${
+                    className={`py-1.5 px-3 rounded-none text-[9px] font-bold tracking-wider uppercase transition-colors ${
                       selectedVillageFilter.toLowerCase() === v.toLowerCase()
-                        ? 'bg-slate-900 text-amber-400 font-black'
-                        : 'bg-white border text-slate-600 hover:bg-slate-50'
+                        ? 'bg-zinc-950 text-white'
+                        : 'bg-zinc-50 border border-zinc-200 text-zinc-650 hover:bg-zinc-100'
                     }`}
                   >
                     {v}
@@ -266,155 +376,183 @@ export default function SellerView({
 
             <button
               type="button"
-              onClick={() => setShowAddProductModal(true)}
-              className="py-1.5 px-3 bg-slate-900 hover:bg-slate-800 text-amber-400 hover:text-white text-[10px] font-black uppercase tracking-wider rounded-xl flex items-center justify-center gap-1.5 shadow-xs transition-all self-start sm:self-center cursor-pointer"
+              onClick={() => {
+                setCurrentTab('products');
+                setShowAddProductModal(true);
+              }}
+              className="py-2 px-4 bg-zinc-950 hover:bg-zinc-800 text-white text-[9px] font-bold uppercase tracking-widest rounded-none flex items-center justify-center gap-1.5 transition-all self-start md:self-center cursor-pointer shadow-xs"
             >
-              <Plus className="h-4 w-4 text-amber-400" />
+              <Plus className="h-3.5 w-3.5" />
               <span>Upload Style</span>
             </button>
           </div>
 
           {filteredRequests.length === 0 ? (
-            <div className="p-8 text-center bg-slate-50 border rounded-xl border-dashed border-slate-200">
-              <Package className="h-8 w-8 text-slate-350 mx-auto mb-2" />
-              <h3 className="text-xs font-bold text-slate-850 uppercase">No booking records found</h3>
-              <p className="mt-1 text-[11px] text-slate-500">When people submit interest forms from Rampur, they show here immediately.</p>
+            <div className="p-16 text-center bg-white border border-dashed rounded-none border-zinc-250 animate-fade-in">
+              <Package className="h-6 w-6 text-zinc-400 mx-auto mb-3" />
+              <h3 className="font-serif text-sm font-normal text-zinc-900 uppercase tracking-widest">No matching demands</h3>
+              <p className="mt-1 text-[10px] tracking-wider uppercase text-zinc-500 font-mono">When villagers submit request forms, logs appear here immediately.</p>
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-left">
-              {filteredRequests.map((req) => {
-                const product = products.find((p) => p.id === req.productId);
-                const canAllocate = !!product;
+            <>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-left animate-fade-in">
+                {filteredRequests.slice(0, visibleRequestsCount).map((req) => {
+                  const product = products.find((p) => p.id === req.productId);
+                  const canAllocate = !!product;
 
-                return (
-                  <div
-                    key={req.id}
-                    className={`p-4 rounded-xl border transition-all bg-white hover:border-slate-300 ${
-                      req.status === 'Allocated' ? 'border-l-4 border-l-emerald-600' :
-                      req.status === 'Delivered' ? 'bg-slate-50/60 opacity-75' :
-                      'border-slate-150'
-                    }`}
-                  >
-                    <div className="flex flex-col gap-2">
-                      <div className="flex items-start justify-between">
-                        <div>
-                          <div className="flex items-center space-x-2 flex-wrap">
-                            <h4 className="font-extrabold text-slate-905 text-sm">{req.customerName}</h4>
-                            <span className="bg-slate-100 text-[10px] text-slate-800 font-mono font-bold px-1.5 py-0.5 rounded">
-                              📞 {req.phone}
-                            </span>
+                  return (
+                    <div
+                      key={req.id}
+                      className={`p-5 rounded-none border transition-all duration-200 bg-white hover:border-zinc-900 ${
+                        req.status === 'Allocated' ? 'border-l-4 border-l-zinc-900' :
+                        req.status === 'Delivered' ? 'bg-zinc-50/50 opacity-75' :
+                        'border-zinc-200'
+                      }`}
+                    >
+                      <div className="flex flex-col gap-3.5">
+                        <div className="flex items-start justify-between font-sans">
+                          <div>
+                            <div className="flex items-center space-x-2 flex-wrap">
+                              <h4 className="font-serif text-sm font-normal text-zinc-900">{req.customerName}</h4>
+                              <span className="bg-zinc-100 text-[9px] font-mono text-zinc-850 font-bold px-1.5 py-0.5 rounded-none border border-zinc-200/50">
+                                📞 {req.phone}
+                              </span>
+                            </div>
+                            {req.email && req.email !== 'default@route.co' && (
+                              <p className="text-[9px] font-semibold text-zinc-400 font-mono mt-0.5">{req.email}</p>
+                            )}
+                            <p className="text-[10px] text-zinc-500 mt-1.5 flex items-center gap-1.5 leading-none">
+                              <span className="inline-block h-1.5 w-1.5 bg-zinc-950"></span>
+                              Village Route: <strong className="text-zinc-900 tracking-wide font-semibold">{req.village}</strong>
+                            </p>
                           </div>
-                          {req.email && req.email !== 'default@route.co' && (
-                            <p className="text-[9px] font-bold text-slate-450 font-mono mt-0.5">{req.email}</p>
+                          
+                          <span className={`inline-flex items-center rounded-none px-2 py-0.5 text-[8px] font-bold uppercase tracking-wider font-mono border ${
+                            req.status === 'Pending' ? 'bg-amber-50 text-amber-800 border-amber-250/50' :
+                            req.status === 'Allocated' ? 'bg-zinc-950 text-white border-zinc-900' :
+                            req.status === 'Delivered' ? 'bg-zinc-100 text-zinc-700 border-zinc-200' :
+                            'bg-rose-50 text-rose-805 border-rose-200'
+                          }`}>
+                            {req.status}
+                          </span>
+                        </div>
+
+                        {/* Item description */}
+                        <div className="bg-zinc-50 p-3.5 rounded-none border border-zinc-150">
+                          <p className="text-[11px] font-medium text-zinc-650 leading-relaxed">
+                            Garment Style: <strong className="text-zinc-950 font-semibold">{req.productName}</strong>
+                          </p>
+                          <div className="flex space-x-3 mt-1.5">
+                            <span className="text-[9px] font-mono font-bold uppercase tracking-wider text-zinc-400">Size Fit: <strong className="bg-[#FAF9F6] border border-zinc-200 px-1.5 py-0.5 text-zinc-800 font-bold">{req.requestedSize}</strong></span>
+                            <span className="text-[9px] font-mono font-bold uppercase tracking-wider text-zinc-400">Color Variant: <strong className="bg-[#FAF9F6] border border-zinc-200 px-1.5 py-0.5 text-zinc-805 font-bold">{req.requestedColor}</strong></span>
+                          </div>
+                          {req.notes && (
+                            <div className="text-[10px] font-mono font-medium text-zinc-500 mt-2 bg-white/70 p-2.5 border border-zinc-150 leading-relaxed uppercase tracking-wide">
+                              &ldquo;{req.notes}&rdquo;
+                            </div>
                           )}
-                          <p className="text-[10px] font-bold text-slate-500 mt-1 flex items-center gap-1.5">
-                            <span className="inline-block h-1.5 w-1.5 rounded-full bg-amber-500"></span>
-                            Village: <strong className="text-slate-900">{req.village}</strong>
-                          </p>
                         </div>
-                        
-                        <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[9px] font-black uppercase ${
-                          req.status === 'Pending' ? 'bg-amber-100 text-amber-800' :
-                          req.status === 'Allocated' ? 'bg-emerald-100 text-emerald-800' :
-                          req.status === 'Delivered' ? 'bg-slate-100 text-slate-800' :
-                          'bg-rose-100 text-rose-800'
-                        }`}>
-                          ● {req.status}
-                        </span>
-                      </div>
 
-                      {/* Item description */}
-                      <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-150">
-                        <p className="text-[11px] font-medium text-slate-650 leading-snug">
-                          Item: <strong className="text-slate-950 font-black">{req.productName}</strong>
-                        </p>
-                        <div className="flex space-x-2 mt-1">
-                          <span className="text-[10px] font-mono font-bold">Size: <strong className="bg-white px-1 py-0.5 border rounded text-slate-800">{req.requestedSize}</strong></span>
-                          <span className="text-[10px] font-mono font-bold">Color: <strong className="bg-white px-1 py-0.5 border rounded text-slate-800">{req.requestedColor}</strong></span>
-                        </div>
-                        {req.notes && (
-                          <p className="text-[10px] text-indigo-700/80 italic mt-1.5 bg-indigo-50/20 px-1 py-0.5">
-                            &ldquo;{req.notes}&rdquo;
-                          </p>
-                        )}
-                      </div>
+                        {/* Operation Actions */}
+                        <div className="flex items-center justify-between border-t border-zinc-100 pt-3 mt-1 font-sans">
+                          <span className="text-[9px] font-mono text-zinc-400">BOOKED ON: {req.dateRequested}</span>
+                          
+                          <div className="flex gap-1.5">
+                            {req.status === 'Pending' && (
+                              <button
+                                type="button"
+                                onClick={() => onAllocateRequestStock(req.id)}
+                                disabled={!canAllocate}
+                                className={`py-1.5 px-3 rounded-none text-[9px] font-bold uppercase tracking-wider flex items-center gap-1 cursor-pointer transition-colors ${
+                                  canAllocate
+                                    ? 'bg-zinc-950 text-white hover:bg-zinc-800'
+                                    : 'bg-zinc-100 text-zinc-400 cursor-not-allowed border border-zinc-200/50'
+                                }`}
+                              >
+                                <Check className="h-3 w-3" />
+                                <span>Lock Stock</span>
+                              </button>
+                            )}
 
-                      {/* Operation Actions */}
-                      <div className="flex items-center justify-between border-t border-slate-100 pt-2.5 mt-1">
-                        <span className="text-[9px] font-mono text-slate-400">Date: {req.dateRequested}</span>
-                        
-                        <div className="flex gap-1">
-                          {req.status === 'Pending' && (
+                            {req.status === 'Allocated' && (
+                              <button
+                                type="button"
+                                onClick={() => onUpdateRequestStatus(req.id, 'Delivered')}
+                                className="py-1.5 px-3 bg-zinc-900 hover:bg-zinc-850 text-white rounded-none text-[9px] font-bold uppercase tracking-wider flex items-center gap-1 cursor-pointer transition-colors"
+                              >
+                                <Truck className="h-3 w-3" />
+                                <span>Handover Paid</span>
+                              </button>
+                            )}
+
                             <button
                               type="button"
-                              onClick={() => onAllocateRequestStock(req.id)}
-                              disabled={!canAllocate}
-                              className={`py-1 px-2.5 rounded text-[10px] font-black uppercase flex items-center gap-1 ${
-                                canAllocate
-                                  ? 'bg-slate-900 text-white hover:bg-slate-800'
-                                  : 'bg-slate-100 text-slate-400 cursor-not-allowed border'
-                              }`}
+                              onClick={() => onDeleteRequest(req.id)}
+                              className="p-1.5 text-zinc-400 hover:text-rose-600 hover:bg-rose-50/50 rounded-none transition-colors border border-transparent hover:border-rose-150"
+                              title="Cancel Request"
                             >
-                              <Check className="h-3 w-3" />
-                              <span>Lock Stock</span>
+                              <Trash2 className="h-3.5 w-3.5" />
                             </button>
-                          )}
-
-                          {req.status === 'Allocated' && (
-                            <button
-                              type="button"
-                              onClick={() => onUpdateRequestStatus(req.id, 'Delivered')}
-                              className="py-1 px-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-[10px] font-black uppercase flex items-center gap-1"
-                            >
-                              <Truck className="h-3 w-3" />
-                              <span>Handover Paid</span>
-                            </button>
-                          )}
-
-                          <button
-                            type="button"
-                            onClick={() => onDeleteRequest(req.id)}
-                            className="p-1 text-slate-350 hover:text-rose-600 hover:bg-rose-50 rounded"
-                            title="Cancel Request"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </button>
+                          </div>
                         </div>
                       </div>
                     </div>
-                  </div>
-                );
-              })}
-            </div>
+                  );
+                })}
+              </div>
+
+              {/* Infinite Scroll Sentinel / Active Demands Loader */}
+              <div ref={requestsObserverTarget} className="mt-12 border-t border-dashed border-zinc-200 pt-8 text-center flex flex-col items-center justify-center space-y-4 animate-fade-in">
+                {visibleRequestsCount < filteredRequests.length ? (
+                  <>
+                    <div className="flex flex-col items-center justify-center py-2 text-zinc-500 font-mono tracking-widest text-[9px] uppercase gap-2">
+                      <span className="h-5 w-5 border-2 border-zinc-300 border-t-zinc-950 rounded-full animate-spin"></span>
+                      <span>Reviewing demands ledger...</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setVisibleRequestsCount((prev) => Math.min(prev + 10, filteredRequests.length))}
+                      className="py-2.5 px-6 border border-zinc-300 hover:border-zinc-950 hover:bg-zinc-50 text-[10px] font-bold uppercase tracking-widest text-zinc-800 transition-all cursor-pointer"
+                    >
+                      Load More Demands
+                    </button>
+                  </>
+                ) : (
+                  <p className="text-[8px] tracking-widest uppercase font-mono text-zinc-400">
+                    📍 End of Demands ledger — Rahul Maurya Admin Panel
+                  </p>
+                )}
+              </div>
+            </>
           )}
         </div>
       )}
 
       {/* 2. Routes Area */}
       {currentTab === 'routes' && (
-        <div className="bg-white p-4 border rounded-2xl border-slate-150 text-left space-y-3.5 font-sans">
+        <div className="bg-white p-6 rounded-none border border-zinc-200 text-left space-y-4 font-sans animate-fade-in shadow-[0_1px_3px_rgba(0,0,0,0.01)]">
           <div className="flex items-center space-x-2">
-            <Calendar className="h-4.5 w-4.5 text-amber-600" />
-            <h4 className="text-xs font-black uppercase text-slate-900">Weekly Route Schedule</h4>
+            <Calendar className="h-4 w-4 text-zinc-900" />
+            <h4 className="font-serif text-sm font-normal uppercase tracking-wider text-zinc-900">Weekly Truck Route Logistics</h4>
           </div>
-          <p className="text-[10px] text-slate-550 leading-relaxed">
-            These are the standard schedules you visit on weekly tracks. You can coordinate and view how many locks or order demands are outstanding on each village route instantly.
+          <p className="text-[10px] text-zinc-500 uppercase tracking-wide leading-relaxed max-w-2xl">
+            Schedules for mobile store road trips. Below, review the outstanding garment requests booked for each village community.
           </p>
 
           <div className="space-y-3 pt-2">
             {villages.map((v) => {
               const count = requests.filter(r => r.village.toLowerCase() === v.name.toLowerCase()).length;
               return (
-                <div key={v.id} className="p-3 border rounded-xl bg-slate-50/50 flex items-center justify-between">
+                <div key={v.id} className="p-4 border rounded-none border-zinc-150 bg-zinc-50/50 flex items-center justify-between hover:bg-zinc-50 transition-colors">
                   <div>
-                    <h5 className="font-extrabold text-slate-900 text-xs">{v.name}</h5>
-                    <p className="text-[11px] text-amber-700 font-bold mt-0.5 flex items-center gap-1 inline-block">
-                      <span>🔄 Every {v.visitDay}</span>
+                    <h5 className="font-serif text-sm font-normal text-zinc-900 tracking-wide">{v.name}</h5>
+                    <p className="text-[9px] font-medium tracking-widest text-zinc-500 mt-1 uppercase flex items-center gap-1">
+                      <span>🔄 Every {v.visitDay} Session</span>
                     </p>
                   </div>
                   <div className="text-right">
-                    <span className="text-[10px] bg-white border px-2 py-1 rounded-lg text-slate-600 font-bold block">
-                      {count} requested
+                    <span className="text-[9px] font-mono hover:border-zinc-900 bg-white border border-zinc-200 px-3 py-1.5 rounded-none text-zinc-800 font-bold uppercase tracking-wider">
+                      {count} requested holds
                     </span>
                   </div>
                 </div>
@@ -426,158 +564,218 @@ export default function SellerView({
 
       {/* 3. Available Products Catalog Area */}
       {currentTab === 'products' && (
-        <div className="space-y-4 font-sans text-left">
+        selectedProductForDetails ? (
+          <div id="inline-seller-product-details" className="space-y-6 text-left animate-fade-in w-full">
+            {/* Back Navigation Bar */}
+            <div className="flex items-center justify-between border-b border-zinc-200 pb-4 mb-4">
+              <button
+                type="button"
+                onClick={() => setSelectedProductForDetails(null)}
+                className="group py-2 px-4 border border-zinc-200 hover:border-zinc-950 hover:bg-zinc-50 text-[10px] font-bold uppercase tracking-widest text-zinc-800 transition-all flex items-center gap-2 cursor-pointer"
+              >
+                <ChevronLeft className="h-4 w-4 transition-transform group-hover:-translate-x-0.5" />
+                <span>Back to Catalog</span>
+              </button>
+              <span className="text-[10px] text-zinc-400 font-mono tracking-wider uppercase font-bold">
+                📍 SELLER ATELIER DIRECTORY
+              </span>
+            </div>
+
+            <ProductDetailsModal
+              product={selectedProductForDetails}
+              onClose={() => setSelectedProductForDetails(null)}
+              role="seller"
+              requests={requests}
+              onToggleStatus={onToggleProductStatus}
+              onDeleteProduct={onDeleteProduct}
+              isInline={true}
+            />
+          </div>
+        ) : showAddProductModal ? (
+          <div id="inline-add-product-form" className="space-y-6 text-left animate-fade-in w-full">
+            {/* Back Navigation Bar */}
+            <div className="flex items-center justify-between border-b border-zinc-200 pb-4 mb-4">
+              <button
+                type="button"
+                onClick={() => setShowAddProductModal(false)}
+                className="group py-2 px-4 border border-zinc-200 hover:border-zinc-950 hover:bg-zinc-50 text-[10px] font-bold uppercase tracking-widest text-zinc-800 transition-all flex items-center gap-2 cursor-pointer"
+              >
+                <ChevronLeft className="h-4 w-4 transition-transform group-hover:-translate-x-0.5" />
+                <span>Back to Catalog</span>
+              </button>
+              <span className="text-[10px] text-zinc-400 font-mono tracking-wider uppercase font-bold">
+                📍 UPLOAD STYLE LEDGER
+              </span>
+            </div>
+
+            <CreateProductModal
+              isOpen={showAddProductModal}
+              onClose={() => setShowAddProductModal(false)}
+              onAddProduct={(prod) => {
+                onAddProduct(prod);
+                setShowAddProductModal(false);
+              }}
+              isInline={true}
+            />
+          </div>
+        ) : (
+          <div className="space-y-4 font-sans text-left">
           {/* Top Filter and Sorting System */}
-          <div className="flex flex-col gap-4 bg-slate-50 p-4 border rounded-2xl border-slate-150">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <div className="flex flex-col gap-5 bg-white p-6 border rounded-none border-zinc-200 text-left shadow-[0_1px_3px_rgba(0,0,0,0.01)] animate-fade-in">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
               {/* Filter */}
               <div>
-                <label className="block text-[9px] font-black text-slate-500 uppercase mb-1.5 tracking-wider">Search Name &amp; Category:</label>
+                <label className="block text-[8px] font-bold text-zinc-400 uppercase mb-2 tracking-widest">Sartorial Search:</label>
                 <div className="relative">
                   <input
                     type="text"
-                    placeholder="Filter styles..."
+                    placeholder="Search styles, frocks, lehengas..."
                     value={productSearch}
                     onChange={(e) => setProductSearch(e.target.value)}
-                    className="block w-full rounded-xl border border-slate-205 py-2 pl-8 pr-3 text-xs text-slate-900 bg-white focus:outline-none focus:ring-1 focus:ring-slate-950 font-medium"
+                    className="block w-full rounded-none border border-zinc-200 py-2.5 pl-9 pr-3 text-xs text-zinc-900 bg-zinc-50/30 focus:bg-white focus:outline-none focus:ring-1 focus:ring-zinc-900 font-medium transition-all"
                   />
-                  <Search className="h-3.5 w-3.5 text-slate-400 absolute left-2.5 top-3" />
+                  <Search className="h-4 w-4 text-zinc-400 absolute left-3 top-3" />
                 </div>
               </div>
 
               {/* Status Toggle */}
               <div>
-                <label className="block text-[9px] font-black text-slate-500 uppercase mb-1.5 tracking-wider">Listing Status Filter:</label>
+                <label className="block text-[8px] font-bold text-zinc-400 uppercase mb-2 tracking-widest">Public Catalog State Filter:</label>
                 <select
                   value={statusFilter}
                   onChange={(e: any) => setStatusFilter(e.target.value)}
-                  className="block w-full rounded-xl border border-slate-205 py-2 px-3 text-xs text-slate-900 bg-white focus:outline-none focus:ring-1 focus:ring-slate-950 font-medium"
+                  className="block w-full rounded-none border border-zinc-200 py-2.5 px-3 text-xs text-zinc-900 bg-white focus:outline-none focus:ring-1 focus:ring-zinc-900 font-medium cursor-pointer"
                 >
-                  <option value="all">All Styles (Active + Hidden)</option>
-                  <option value="listed">Listed Only (Publicly Available)</option>
-                  <option value="unlisted">Unlisted Only (Hidden)</option>
+                  <option value="all">Display All Styles (Archive + Public)</option>
+                  <option value="listed">Publicly Listed Items Only</option>
+                  <option value="unlisted">Unlisted (Stored / Hidden) Only</option>
                 </select>
               </div>
 
               {/* Sorting Filter */}
               <div>
-                <label className="block text-[9px] font-black text-slate-500 uppercase mb-1.5 tracking-wider">Sort Styles By:</label>
+                <label className="block text-[8px] font-bold text-zinc-400 uppercase mb-2 tracking-widest">Sort Inventory Ledger By:</label>
                 <select
                   value={sortBy}
                   onChange={(e: any) => setSortBy(e.target.value)}
-                  className="block w-full rounded-xl border border-slate-205 py-2 px-3 text-xs text-slate-900 bg-white focus:outline-none focus:ring-1 focus:ring-slate-950 font-medium"
+                  className="block w-full rounded-none border border-zinc-200 py-2.5 px-3 text-xs text-zinc-900 bg-white focus:outline-none focus:ring-1 focus:ring-zinc-900 font-medium cursor-pointer"
                 >
-                  <option value="name">Product Name (Alphabetical)</option>
-                  <option value="requests">Demand Popularity (Total Requests)</option>
-                  <option value="likes">Customer Favorites (Likes count)</option>
-                  <option value="villages">Village Dispersion (Unique Villages)</option>
+                  <option value="name">Product Name (A - Z)</option>
+                  <option value="requests">Active Demand Popularity</option>
+                  <option value="likes">Customer Favorites (Likes)</option>
+                  <option value="villages">Road Dispersion (Unique Villages)</option>
                 </select>
               </div>
             </div>
 
             {/* Sub Counter bar */}
-            <div className="flex items-center justify-between border-t border-slate-150 pt-3 flex-wrap gap-2">
-              <span className="text-[10px] text-slate-500 font-bold">
-                Showing <strong className="text-slate-900">{filteredProductsList.length}</strong> styles matching selection
+            <div className="flex items-center justify-between border-t border-zinc-100 pt-4 flex-wrap gap-3">
+              <span className="text-[9px] text-zinc-500 uppercase tracking-widest font-semibold font-mono">
+                Showing <strong className="text-zinc-900 font-bold">{filteredProductsList.length}</strong> styles matching selection
               </span>
               <button
                 type="button"
                 onClick={() => setShowAddProductModal(true)}
-                className="py-2 px-4 bg-slate-900 hover:bg-slate-800 text-amber-400 hover:text-white text-[10px] font-black uppercase tracking-wider rounded-xl flex items-center justify-center gap-1.5 shadow-xs transition-all cursor-pointer"
+                className="py-2.5 px-5 bg-zinc-950 hover:bg-zinc-800 text-white text-[9px] font-bold uppercase tracking-widest rounded-none flex items-center justify-center gap-2 transition-all cursor-pointer shadow-xs"
               >
-                <Plus className="h-4 w-4 text-amber-400" />
+                <Plus className="h-3.5 w-3.5" />
                 <span>Upload Style</span>
               </button>
             </div>
           </div>
 
           {filteredProductsList.length === 0 ? (
-            <div className="p-8 text-center bg-slate-50 border rounded-xl border-dashed border-slate-205">
-              <Package className="h-8 w-8 text-slate-350 mx-auto mb-2" />
-              <h3 className="text-xs font-bold text-slate-850 uppercase">No matching products found</h3>
-              <p className="mt-1 text-[11px] text-slate-500">Try modifying search or filters.</p>
+            <div className="p-16 text-center bg-white border border-dashed rounded-none border-zinc-200 animate-fade-in col-span-full">
+              <Package className="h-6 w-6 text-zinc-400 mx-auto mb-3" />
+              <h3 className="font-serif text-sm font-normal text-zinc-900 uppercase tracking-widest">No matching designs</h3>
+              <p className="mt-1 text-[10px] tracking-wider uppercase text-zinc-500 font-mono">Modify terms or clear fields to view atelier stock.</p>
             </div>
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-              {filteredProductsList.map((p) => {
+            <>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 animate-fade-in">
+              {filteredProductsList.slice(0, visibleCount).map((p) => {
                 const hasImage = p.images && p.images.length > 0;
                 const pStatus = p.status || 'listed';
 
                 return (
-                  <div key={p.id} className="p-4 bg-white border border-slate-150 rounded-2xl flex flex-col justify-between hover:border-slate-300 transition-all shadow-2xs">
+                  <div
+                    key={p.id}
+                    onClick={() => setSelectedProductForDetails(p)}
+                    className="p-5 bg-white border border-zinc-200 rounded-none flex flex-col justify-between hover:border-zinc-900 transition-all shadow-[0_1px_3px_rgba(0,0,0,0.01)] group cursor-pointer"
+                  >
                     <div>
                       {/* Product identity header */}
-                      <div className="flex gap-3 items-start mb-3">
+                      <div className="flex gap-4 items-start mb-4">
                         {hasImage ? (
                           <img
                             src={p.images[0]}
                             referrerPolicy="no-referrer"
                             alt={p.name}
-                            className="w-14 h-14 rounded-xl object-cover shrink-0 border border-slate-100"
+                            className="w-14 h-14 rounded-none object-cover shrink-0 border border-zinc-150 group-hover:scale-[1.02] transition-transform duration-300"
                           />
                         ) : (
-                          <div className={`w-14 h-14 rounded-xl ${p.imageColor || 'bg-slate-100'} flex items-center justify-center shrink-0 border border-slate-100 text-slate-400`}>
-                            <Tag className="h-5 w-5" />
+                          <div className={`w-14 h-14 rounded-none ${p.imageColor || 'bg-zinc-50'} flex items-center justify-center shrink-0 border border-zinc-150 text-zinc-400`}>
+                            <Tag className="h-4 w-4" />
                           </div>
                         )}
 
-                        <div className="flex-1 min-w-0">
+                        <div className="flex-1 min-w-0 text-left">
                           <div className="flex items-center gap-1 flex-wrap">
-                            <span className="text-[8px] font-black uppercase text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded tracking-wide border border-amber-100">
+                            <span className="text-[8px] font-bold uppercase tracking-wider text-zinc-500 bg-zinc-55 hover:bg-zinc-100 px-1.5 py-0.5 rounded-none border border-zinc-205">
                               {p.category}
                             </span>
-                            <span className="text-[8px] font-black uppercase bg-slate-100 text-slate-800 px-1.5 py-0.5 rounded">
+                            <span className="text-[8px] font-bold uppercase tracking-wider bg-zinc-105 text-zinc-800 px-1.5 py-0.5 rounded-none">
                               {p.gender}
                             </span>
                           </div>
-                          <h4 className="font-extrabold text-slate-905 text-xs truncate mt-1" title={p.name}>
+                          <h4 className="font-serif text-xs font-normal text-zinc-900 truncate mt-1.5" title={p.name}>
                             {p.name}
                           </h4>
-                          <p className="text-[10px] font-mono text-slate-500 mt-0.5 font-bold">
+                          <p className="text-[10px] font-medium text-zinc-700 tracking-wide font-mono mt-0.5">
                             ₹{p.priceMin} - ₹{p.priceMax}
                           </p>
                         </div>
                       </div>
 
                       {/* Details specs list */}
-                      <div className="border-t border-slate-100 pt-3 pb-2 space-y-2 text-[10px]">
+                      <div className="border-t border-zinc-100 pt-3 pb-2.5 space-y-2 text-[10px] text-left">
                         <div className="flex items-center justify-between">
-                          <span className="text-slate-450 font-bold">Age Group:</span>
-                          <span className="text-slate-800 font-bold bg-slate-50 px-1.5 py-0.5 rounded">{p.ageGroup}</span>
+                          <span className="text-zinc-400 uppercase tracking-wider text-[8px] font-bold">Age Segment:</span>
+                          <span className="text-zinc-850 font-semibold tracking-wide bg-zinc-100 px-1.5 py-0.5 rounded-none">{p.ageGroup}</span>
                         </div>
                         <div className="flex items-center justify-between">
-                          <span className="text-slate-450 font-bold">Sizes Offered:</span>
-                          <span className="text-slate-800 font-bold font-mono">{(p.sizes || []).join(', ')}</span>
+                          <span className="text-zinc-400 uppercase tracking-wider text-[8px] font-bold">Sizes Offered:</span>
+                          <span className="text-zinc-850 font-bold font-mono">{(p.sizes || []).join(', ')}</span>
                         </div>
                         <div className="flex items-center justify-between">
-                          <span className="text-slate-450 font-bold">Colors:</span>
-                          <span className="text-slate-800 font-bold">{(p.colors || []).join(', ')}</span>
+                          <span className="text-zinc-400 uppercase tracking-wider text-[8px] font-bold">Color Palette:</span>
+                          <span className="text-zinc-855 font-bold">{(p.colors || []).join(', ')}</span>
                         </div>
-                        <div className="flex items-center justify-between border-t border-dashed border-slate-100 pt-2 pb-1">
-                          <span className="text-slate-450 font-bold">Likes count:</span>
-                          <span className="text-rose-600 font-bold flex items-center gap-0.5">
-                            ❤️ {p.totalLikes} Likes
+                        <div className="flex items-center justify-between border-t border-dashed border-zinc-200 pt-2.5 pb-1">
+                          <span className="text-zinc-400 uppercase tracking-wider text-[8px] font-bold">Likes count:</span>
+                          <span className="text-zinc-900 font-bold flex items-center gap-0.5">
+                            🖤 {p.totalLikes} Faves
                           </span>
                         </div>
                         <div className="flex items-center justify-between">
-                          <span className="text-slate-450 font-bold">Active Demands:</span>
-                          <span className="font-mono font-black text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded">
-                            ✨ {p.totalRequests} custom holds
+                          <span className="text-zinc-400 uppercase tracking-wider text-[8px] font-bold">Custom holds:</span>
+                          <span className="font-mono font-bold text-zinc-950 bg-zinc-100 px-1.5 py-0.5 rounded-none border border-zinc-200/50">
+                            ✨ {p.totalRequests} Demands
                           </span>
                         </div>
                         <div className="flex items-center justify-between">
-                          <span className="text-slate-450 font-bold">Village Footprint:</span>
-                          <span className="text-slate-800 font-mono font-bold">📍 {p.totalVillages} villages</span>
+                          <span className="text-zinc-400 uppercase tracking-wider text-[8px] font-bold">Village Dispersion:</span>
+                          <span className="text-zinc-855 font-mono font-bold">📍 {p.totalVillages} Villages</span>
                         </div>
-                        <div className="flex items-center justify-between border-t border-dashed border-slate-100 pt-2">
-                          <span className="text-slate-450 font-bold">Public Status:</span>
+                        <div className="flex items-center justify-between border-t border-dashed border-zinc-200 pt-2.5">
+                          <span className="text-zinc-400 uppercase tracking-wider text-[8px] font-bold">Atelier Display:</span>
                           {pStatus === 'listed' ? (
-                            <span className="text-[8px] font-black uppercase text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded tracking-wide font-mono">
-                              PUBLICLY LISTED
+                            <span className="text-[8px] font-bold uppercase tracking-widest text-emerald-700 bg-emerald-50 px-1.5 py-0.5 border border-emerald-200/50 font-mono">
+                              Publicly Listed
                             </span>
                           ) : (
-                            <span className="text-[8px] font-black uppercase text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded tracking-wide font-mono">
-                              UNLISTED (HIDDEN)
+                            <span className="text-[8px] font-bold uppercase tracking-widest text-zinc-500 bg-zinc-100 px-1.5 py-0.5 border border-zinc-200 font-mono">
+                              Hidden Draft
                             </span>
                           )}
                         </div>
@@ -585,10 +783,10 @@ export default function SellerView({
                     </div>
 
                     {/* Controls */}
-                    <div className="mt-3 h-8 flex items-center">
+                    <div className="mt-4 h-8 flex items-center border-t border-zinc-100 pt-3" onClick={(e) => e.stopPropagation()}>
                       {deletingProductId === p.id ? (
-                        <div className="flex gap-2 w-full items-center justify-between bg-rose-50/50 border border-rose-100 p-1 px-1.5 rounded-xl animate-fade-in">
-                          <span className="text-[9px] font-black text-rose-700 uppercase tracking-wider">Confirm delete?</span>
+                        <div className="flex gap-2 w-full items-center justify-between bg-zinc-50 border border-zinc-200 p-1 px-1.5 rounded-none animate-fade-in">
+                          <span className="text-[9px] font-bold text-zinc-700 uppercase tracking-wider">Perm delete style?</span>
                           <div className="flex gap-1 shrink-0">
                             <button
                               type="button"
@@ -596,14 +794,14 @@ export default function SellerView({
                                 onDeleteProduct(p.id);
                                 setDeletingProductId(null);
                               }}
-                              className="py-1 px-2.5 bg-rose-600 hover:bg-rose-700 text-white text-[9px] font-black uppercase tracking-wider rounded-lg transition-all cursor-pointer"
+                              className="py-1 px-2 bg-rose-600 hover:bg-rose-700 text-white text-[9px] font-bold uppercase tracking-wider rounded-none transition-all cursor-pointer"
                             >
-                              Yes, Delete
+                              Confirm
                             </button>
                             <button
                               type="button"
                               onClick={() => setDeletingProductId(null)}
-                              className="py-1 px-2.5 bg-slate-100 hover:bg-slate-200 text-slate-800 text-[9px] font-black uppercase tracking-wider rounded-lg transition-all cursor-pointer"
+                              className="py-1 px-2 bg-zinc-200 hover:bg-zinc-300 text-zinc-800 text-[9px] font-bold uppercase tracking-wider rounded-none transition-all cursor-pointer"
                             >
                               Cancel
                             </button>
@@ -616,22 +814,22 @@ export default function SellerView({
                             onClick={() => {
                               onToggleProductStatus(p.id, pStatus === 'listed' ? 'unlisted' : 'listed');
                             }}
-                            className={`flex-1 py-1.5 px-2.5 rounded-xl border text-[9px] font-black uppercase tracking-wider text-center transition-all cursor-pointer ${
+                            className={`flex-1 py-1.5 px-3 rounded-none border text-[9px] font-bold uppercase tracking-widest text-center transition-all cursor-pointer ${
                               pStatus === 'listed'
-                                ? 'bg-amber-50 border-amber-200 text-amber-800 hover:bg-amber-100'
-                                : 'bg-emerald-50 border-emerald-200 text-emerald-800 hover:bg-emerald-100'
+                                ? 'bg-zinc-100 border-zinc-200 text-zinc-700 hover:bg-zinc-200'
+                                : 'bg-zinc-950 border-zinc-900 text-white hover:bg-zinc-800'
                             }`}
                           >
-                            {pStatus === 'listed' ? 'Unlist' : 'Make Listed'}
+                            {pStatus === 'listed' ? 'Unlist Draft' : 'Make Public'}
                           </button>
 
                           <button
                             type="button"
                             onClick={() => setDeletingProductId(p.id)}
-                            className="py-1.5 px-2 bg-slate-50 border border-slate-200 hover:bg-rose-50 hover:border-rose-200 hover:text-rose-600 rounded-xl transition-all cursor-pointer"
+                            className="py-1.5 px-2 bg-zinc-50 border border-zinc-200 hover:bg-rose-50 hover:border-rose-200 hover:text-rose-650 rounded-none transition-all cursor-pointer"
                             title="Delete product permanently"
                           >
-                            <Trash2 className="h-3.5 w-3.5 text-slate-500 hover:text-rose-600" />
+                            <Trash2 className="h-3.5 w-3.5 text-zinc-500 hover:text-rose-600" />
                           </button>
                         </div>
                       )}
@@ -640,16 +838,34 @@ export default function SellerView({
                 );
               })}
             </div>
-          )}
-        </div>
-      )}
 
-      {/* Modular Product Upload Dialog with Preview Support */}
-      <CreateProductModal
-        isOpen={showAddProductModal}
-        onClose={() => setShowAddProductModal(false)}
-        onAddProduct={onAddProduct}
-      />
+            {/* Infinite Scroll Sentinel / Seller Stock Loader */}
+            <div ref={observerTarget} className="mt-12 border-t border-dashed border-zinc-200 pt-8 text-center flex flex-col items-center justify-center space-y-4 animate-fade-in">
+              {visibleCount < filteredProductsList.length ? (
+                <>
+                  <div className="flex flex-col items-center justify-center py-2 text-zinc-500 font-mono tracking-widest text-[9px] uppercase gap-2">
+                    <span className="h-5 w-5 border-2 border-zinc-300 border-t-zinc-950 rounded-full animate-spin"></span>
+                    <span>Reviewing stock ledger...</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setVisibleCount((prev) => Math.min(prev + 8, filteredProductsList.length))}
+                    className="py-2.5 px-6 border border-zinc-300 hover:border-zinc-950 hover:bg-zinc-50 text-[10px] font-bold uppercase tracking-widest text-zinc-800 transition-all cursor-pointer"
+                  >
+                    Load More Styles
+                  </button>
+                </>
+              ) : (
+                <p className="text-[8px] tracking-widest uppercase font-mono text-zinc-400">
+                  📍 End of Sourced stock inventory — Rahul Maurya Admin Panel
+                </p>
+              )}
+            </div>
+          </>
+        )}
+        </div>
+      )
+    )}
 
     </div>
   );
