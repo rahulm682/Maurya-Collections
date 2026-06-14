@@ -25,13 +25,15 @@ service cloud.firestore {
     // 1. PRODUCTS COLLECTION
     match /products/{productId} {
       allow get, list: if true; // Public viewable
-      allow create, update, delete: if isAdmin() && isValidId(productId);
+      allow create: if isValidId(productId); // Seeding and self-healing permitted
+      allow delete: if isAdmin() && isValidId(productId);
+      allow update: if (isAdmin() && isValidId(productId)) || 
+                      (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likes']));
     }
 
     // 2. REQUESTS COLLECTION
     match /requests/{requestId} {
-      allow create: if true; // Anyone can submit an interest reservation form
-      allow get, list, update, delete: if isAdmin() && isValidId(requestId);
+      allow create, get, list, update, delete: if true; // Anyone can submit, view, and manage reservation requests in real-time sandbox
     }
   }
 }

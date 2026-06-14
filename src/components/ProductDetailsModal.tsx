@@ -259,7 +259,7 @@ ${getShareUrl()}`;
                   ) : (
                     <Share2 className="h-3.5 w-3.5 text-zinc-500" />
                   )}
-                  <span>{copiedLink ? 'Copied' : 'Deep Link'}</span>
+                  <span>{copiedLink ? 'Copied' : 'Copy Link'}</span>
                 </button>
 
                 <button
@@ -275,9 +275,6 @@ ${getShareUrl()}`;
                   <span>{copiedMessage ? 'Copied Text' : 'Copy Specs'}</span>
                 </button>
               </div>
-              <p className="text-[8px] text-zinc-400 uppercase tracking-wide font-mono leading-relaxed">
-                *Deep-Link allows clients direct access to show this style instantly upon opening Maurya Collections app.*
-              </p>
             </div>
 
             {/* ADMIN VISUAL STATE & LOGISTICS DETAILS */}
@@ -285,7 +282,7 @@ ${getShareUrl()}`;
               <div className="border-t border-zinc-200 pt-5 space-y-4 bg-zinc-50/70 p-4 border border-zinc-150 text-xs font-sans">
                 <div className="flex items-center gap-1.5 font-serif text-sm font-normal text-zinc-900 uppercase">
                   <Sparkles className="h-3.5 w-3.5 text-zinc-500" />
-                  <span>Rahul Maurya Sourcing Diagnostics</span>
+                  <span>Rahul Maurya Sourcing Overview</span>
                 </div>
 
                 <div className="grid grid-cols-3 gap-4 border-b border-zinc-150 pb-3">

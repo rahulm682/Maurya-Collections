@@ -46,6 +46,8 @@ export default function SellerView({
 
   // Village filtering for requests
   const [selectedVillageFilter, setSelectedVillageFilter] = useState<string>('All');
+  const [selectedRequestStatusFilter, setSelectedRequestStatusFilter] = useState<string>('All');
+  const [requestsSortBy, setRequestsSortBy] = useState<'newest' | 'oldest' | 'customerName'>('newest');
 
   // High performance infinite scroll/lazy load states
   const [visibleCount, setVisibleCount] = useState(12);
@@ -60,7 +62,7 @@ export default function SellerView({
   useEffect(() => {
     setVisibleCount(12);
     setVisibleRequestsCount(10);
-  }, [productSearch, statusFilter, sortBy, currentTab, selectedVillageFilter]);
+  }, [productSearch, statusFilter, sortBy, currentTab, selectedVillageFilter, selectedRequestStatusFilter, requestsSortBy]);
 
   useEffect(() => {
     if (deepLinkedProduct) {
@@ -81,13 +83,52 @@ export default function SellerView({
     return Array.from(set);
   }, [requests]);
 
-  // Combined route requests check
+  // Combined route requests check with Village & Status filtering and Sorting
   const filteredRequests = useMemo(() => {
-    return requests.filter((r) => {
-      if (selectedVillageFilter === 'All') return true;
-      return r.village.toLowerCase() === selectedVillageFilter.toLowerCase();
+    let result = [...requests];
+
+    // 1. Village filter
+    if (selectedVillageFilter !== 'All') {
+      result = result.filter(
+        (r) => r.village.toLowerCase() === selectedVillageFilter.toLowerCase()
+      );
+    }
+
+    // 2. Status filter
+    if (selectedRequestStatusFilter !== 'All') {
+      result = result.filter(
+        (r) => r.status.toLowerCase() === selectedRequestStatusFilter.toLowerCase()
+      );
+    }
+
+    // 3. Sorting
+    result.sort((a, b) => {
+      if (requestsSortBy === 'customerName') {
+        return a.customerName.localeCompare(b.customerName);
+      }
+      
+      // Extract timestamps if present in IDs format 'req-timestamp'
+      const timeVal = (idStr: string, dateStr: string) => {
+        if (idStr.startsWith('req-')) {
+          const parts = idStr.split('-');
+          const num = parseInt(parts[parts.length - 1]);
+          if (!isNaN(num)) return num;
+        }
+        return new Date(dateStr).getTime() || 0;
+      };
+
+      const timeA = timeVal(a.id, a.dateRequested);
+      const timeB = timeVal(b.id, b.dateRequested);
+
+      if (requestsSortBy === 'newest') {
+        return timeB - timeA;
+      } else {
+        return timeA - timeB;
+      }
     });
-  }, [requests, selectedVillageFilter]);
+
+    return result;
+  }, [requests, selectedVillageFilter, selectedRequestStatusFilter, requestsSortBy]);
 
   // Under-stocked alerts are disabled as stock tracking is removed from the app
   const procurementAlerts: any[] = [];
@@ -342,49 +383,82 @@ export default function SellerView({
       {/* 1. Requests Area */}
       {currentTab === 'requests' && (
         <div className="space-y-4">
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 bg-white p-5 border rounded-none border-zinc-205 text-left">
-            <div>
-              <span className="text-[8px] font-bold text-zinc-400 uppercase tracking-widest block mb-2">Filter Routing Outlets:</span>
-              <div className="flex flex-wrap gap-1.5">
-                <button
-                  type="button"
-                  onClick={() => setSelectedVillageFilter('All')}
-                  className={`py-1.5 px-3 rounded-none text-[9px] font-bold tracking-wider uppercase transition-colors uppercase ${
-                    selectedVillageFilter === 'All'
-                      ? 'bg-zinc-950 text-white'
-                      : 'bg-zinc-50 border border-zinc-200 text-zinc-650 hover:bg-zinc-100'
-                  }`}
-                >
-                  All Demands
-                </button>
-                {submissionVillages.map((v) => (
-                  <button
-                    key={v}
-                    type="button"
-                    onClick={() => setSelectedVillageFilter(v)}
-                    className={`py-1.5 px-3 rounded-none text-[9px] font-bold tracking-wider uppercase transition-colors ${
-                      selectedVillageFilter.toLowerCase() === v.toLowerCase()
-                        ? 'bg-zinc-950 text-white'
-                        : 'bg-zinc-50 border border-zinc-200 text-zinc-650 hover:bg-zinc-100'
-                    }`}
-                  >
-                    {v}
-                  </button>
-                ))}
+          <div className="bg-white p-5 border border-zinc-200 rounded-none text-left space-y-4">
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+              <div>
+                <h4 className="font-serif text-sm font-normal text-zinc-900 uppercase tracking-wider">Demands Ledger Controls</h4>
+                <p className="text-[9px] font-mono uppercase text-[#e4a853] mt-0.5 font-bold">Refine, sort, and manage village customer requests physically.</p>
               </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setCurrentTab('products');
+                  setShowAddProductModal(true);
+                }}
+                className="py-2 px-4 bg-zinc-950 hover:bg-zinc-850 text-white text-[9px] font-bold uppercase tracking-widest rounded-none flex items-center justify-center gap-1.5 transition-all self-start md:self-auto cursor-pointer shadow-xs border border-zinc-950"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                <span>Upload Style</span>
+              </button>
             </div>
 
-            <button
-              type="button"
-              onClick={() => {
-                setCurrentTab('products');
-                setShowAddProductModal(true);
-              }}
-              className="py-2 px-4 bg-zinc-950 hover:bg-zinc-800 text-white text-[9px] font-bold uppercase tracking-widest rounded-none flex items-center justify-center gap-1.5 transition-all self-start md:self-center cursor-pointer shadow-xs"
-            >
-              <Plus className="h-3.5 w-3.5" />
-              <span>Upload Style</span>
-            </button>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 border-t border-zinc-100 pt-4">
+              {/* 1. Village Filter */}
+              <div>
+                <label htmlFor="req-filter-village" className="block text-[8px] font-bold text-zinc-400 uppercase tracking-widest mb-1.5 font-mono">
+                  Village Outlet
+                </label>
+                <select
+                  id="req-filter-village"
+                  value={selectedVillageFilter}
+                  onChange={(e) => setSelectedVillageFilter(e.target.value)}
+                  className="block w-full rounded-none border border-zinc-200 py-1.5 px-2 text-xs text-zinc-800 bg-[#FAF9F6] focus:bg-white focus:ring-1 focus:ring-zinc-950 focus:outline-none transition-all uppercase font-mono font-medium"
+                >
+                  <option value="All">All Village Outlets</option>
+                  {submissionVillages.map((v) => (
+                    <option key={v} value={v}>
+                      {v}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* 2. Status Filter */}
+              <div>
+                <label htmlFor="req-filter-status" className="block text-[8px] font-bold text-zinc-400 uppercase tracking-widest mb-1.5 font-mono">
+                  Status Pipeline
+                </label>
+                <select
+                  id="req-filter-status"
+                  value={selectedRequestStatusFilter}
+                  onChange={(e) => setSelectedRequestStatusFilter(e.target.value)}
+                  className="block w-full rounded-none border border-zinc-200 py-1.5 px-2 text-xs text-zinc-800 bg-[#FAF9F6] focus:bg-white focus:ring-1 focus:ring-zinc-950 focus:outline-none transition-all uppercase font-mono font-medium"
+                >
+                  <option value="All">All Statuses</option>
+                  <option value="Pending">Pending</option>
+                  <option value="Allocated">Allocated</option>
+                  <option value="Delivered">Delivered</option>
+                  <option value="Cancelled">Cancelled</option>
+                </select>
+              </div>
+
+              {/* 3. Sort Order */}
+              <div>
+                <label htmlFor="req-sort" className="block text-[8px] font-bold text-zinc-400 uppercase tracking-widest mb-1.5 font-mono">
+                  Sort Demands By
+                </label>
+                <select
+                  id="req-sort"
+                  value={requestsSortBy}
+                  onChange={(e) => setRequestsSortBy(e.target.value as any)}
+                  className="block w-full rounded-none border border-zinc-200 py-1.5 px-2 text-xs text-zinc-800 bg-[#FAF9F6] focus:bg-white focus:ring-1 focus:ring-zinc-950 focus:outline-none transition-all uppercase font-mono font-medium"
+                >
+                  <option value="newest">Newest First</option>
+                  <option value="oldest">Oldest First</option>
+                  <option value="customerName">Customer Name (A-Z)</option>
+                </select>
+              </div>
+            </div>
           </div>
 
           {filteredRequests.length === 0 ? (
@@ -452,46 +526,35 @@ export default function SellerView({
                             </div>
                           )}
                         </div>
-
                         {/* Operation Actions */}
-                        <div className="flex items-center justify-between border-t border-zinc-100 pt-3 mt-1 font-sans">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between border-t border-zinc-100 pt-4 mt-2 gap-3 font-sans">
                           <span className="text-[9px] font-mono text-zinc-400">BOOKED ON: {req.dateRequested}</span>
                           
-                          <div className="flex gap-1.5">
-                            {req.status === 'Pending' && (
-                              <button
-                                type="button"
-                                onClick={() => onAllocateRequestStock(req.id)}
-                                disabled={!canAllocate}
-                                className={`py-1.5 px-3 rounded-none text-[9px] font-bold uppercase tracking-wider flex items-center gap-1 cursor-pointer transition-colors ${
-                                  canAllocate
-                                    ? 'bg-zinc-950 text-white hover:bg-zinc-800'
-                                    : 'bg-zinc-100 text-zinc-400 cursor-not-allowed border border-zinc-200/50'
-                                }`}
+                          <div className="flex items-center justify-end gap-2.5">
+                            {/* Dropdown status update */}
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-[8px] font-bold text-zinc-400 uppercase tracking-widest font-mono">Status:</span>
+                              <select
+                                id={`status-dropdown-${req.id}`}
+                                value={req.status}
+                                onChange={(e) => onUpdateRequestStatus(req.id, e.target.value as any)}
+                                className="text-[9px] font-bold uppercase tracking-wider rounded-none border border-zinc-250 bg-[#FAF9F6] py-1 px-2 focus:outline-none focus:ring-1 focus:ring-zinc-950 cursor-pointer font-mono text-zinc-800"
                               >
-                                <Check className="h-3 w-3" />
-                                <span>Lock Stock</span>
-                              </button>
-                            )}
-
-                            {req.status === 'Allocated' && (
-                              <button
-                                type="button"
-                                onClick={() => onUpdateRequestStatus(req.id, 'Delivered')}
-                                className="py-1.5 px-3 bg-zinc-900 hover:bg-zinc-850 text-white rounded-none text-[9px] font-bold uppercase tracking-wider flex items-center gap-1 cursor-pointer transition-colors"
-                              >
-                                <Truck className="h-3 w-3" />
-                                <span>Handover Paid</span>
-                              </button>
-                            )}
+                                                        <option value="Pending">Pending</option>
+                                                        <option value="Allocated">Allocated</option>
+                                                        <option value="Delivered">Delivered</option>
+                                                        <option value="Cancelled">Cancelled</option>
+                              </select>
+                            </div>
 
                             <button
                               type="button"
+                              id={`delete-request-btn-${req.id}`}
                               onClick={() => onDeleteRequest(req.id)}
-                              className="p-1.5 text-zinc-400 hover:text-rose-600 hover:bg-rose-50/50 rounded-none transition-colors border border-transparent hover:border-rose-150"
-                              title="Cancel Request"
+                              className="p-1 px-1.5 text-zinc-400 hover:text-rose-600 hover:bg-rose-50/50 rounded-none transition-colors border border-zinc-200"
+                              title="Delete Request"
                             >
-                              <Trash2 className="h-3.5 w-3.5" />
+                              <Trash2 className="h-3 w-3" />
                             </button>
                           </div>
                         </div>
