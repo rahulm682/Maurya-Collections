@@ -6,23 +6,14 @@ import CustomerView from './components/CustomerView';
 import SellerView from './components/SellerView';
 import { CheckCircle2, Lock } from 'lucide-react';
 
-// Firebase imports
-import { 
-  collection, 
-  onSnapshot, 
-  doc, 
-  setDoc, 
-  getDocs, 
-  updateDoc, 
-  deleteDoc 
-} from 'firebase/firestore';
+// Firebase Auth (for secure portal)
 import { 
   signInWithPopup, 
   GoogleAuthProvider, 
   signOut, 
   onAuthStateChanged 
 } from 'firebase/auth';
-import { db, auth, handleFirestoreError, OperationType, testConnection } from './firebase';
+import { auth } from './firebase';
 
 // Administrative credential constants sourced from environment variables to avoid codebase exposure
 const ADMIN_EMAIL = (import.meta as any).env.VITE_ADMIN_EMAIL || 'maurya.rahul6820@gmail.com';
@@ -32,8 +23,24 @@ export default function App() {
   const [currentRole, setCurrentRole] = useState<'customer' | 'seller'>('customer');
   
   // Storage initialization
-  const [products, setProducts] = useState<Product[]>([]);
-  const [requests, setRequests] = useState<CustomerRequest[]>([]);
+  const [products, setProducts] = useState<Product[]>(() => {
+    const cached = localStorage.getItem('cached_products');
+    if (cached) {
+      try {
+        return JSON.parse(cached);
+      } catch (e) {}
+    }
+    return INITIAL_PRODUCTS;
+  });
+  const [requests, setRequests] = useState<CustomerRequest[]>(() => {
+    const cached = localStorage.getItem('cached_requests');
+    if (cached) {
+      try {
+        return JSON.parse(cached);
+      } catch (e) {}
+    }
+    return INITIAL_REQUESTS;
+  });
   const [villages, setVillages] = useState<VillageRoute[]>([]);
   const [likedProductIds, setLikedProductIds] = useState<string[]>([]);
   const [uiNotification, setUiNotification] = useState<{ message: string; type: 'success' | 'info' } | null>(null);
@@ -59,12 +66,40 @@ export default function App() {
   const [loginPassword, setLoginPassword] = useState('');
   const [loginError, setLoginError] = useState<string | null>(null);
 
+  // Helper to fetch products and requests from current server instance
+  const fetchAllData = async () => {
+    try {
+      const prodRes = await fetch('/api/products');
+      if (prodRes.ok) {
+        const prodData = await prodRes.json();
+        setProducts(prodData);
+        localStorage.setItem('cached_products', JSON.stringify(prodData));
+      }
+    } catch (e) {
+      console.warn("Fallback default products read under connectivity limit:", e);
+    }
+
+    try {
+      const reqRes = await fetch('/api/requests');
+      if (reqRes.ok) {
+        const reqData = await reqRes.json();
+        setRequests(reqData);
+        localStorage.setItem('cached_requests', JSON.stringify(reqData));
+      }
+    } catch (e) {
+      console.warn("Fallback default requests read under connectivity limit:", e);
+    }
+  };
+
   // 1. Initial State Sync & Auth Gate Listening
   useEffect(() => {
-    // Probe Firestore server connection to trace any missing credentials upfront
-    testConnection();
+    // Sync initial datasets
+    fetchAllData();
 
-    const unsubAuth = onAuthStateChanged(auth, (user) => {
+    // Set real-time sync via automatic REST polling every 4 seconds to solve multi-browser state sync
+    const syncTimer = setInterval(fetchAllData, 4000);
+
+    const unsubAuth = onAuthStateChanged(auth, async (user) => {
       if (user && user.email === ADMIN_EMAIL) {
         setAdminAuthenticated(true);
         localStorage.setItem('maurya_admin_auth', 'true');
@@ -104,101 +139,9 @@ export default function App() {
 
     return () => {
       unsubAuth();
+      clearInterval(syncTimer);
     };
   }, []);
-
-  // 2. Dynamic Real-time Collections listening from Firestore DB
-  useEffect(() => {
-    console.log("Setting up live database listeners...");
-
-    const unsubProducts = onSnapshot(collection(db, 'products'), (snapshot) => {
-      const fetchedProducts: Product[] = [];
-      snapshot.forEach((docSnap) => {
-        fetchedProducts.push(docSnap.data() as Product);
-      });
-
-      if (fetchedProducts.length > 0) {
-        setProducts(fetchedProducts);
-        localStorage.setItem('cached_products', JSON.stringify(fetchedProducts));
-      } else {
-        // Fallback to memory configuration and self-heal Firestore database so that likes immediately persist in the cloud
-        setProducts(INITIAL_PRODUCTS);
-        INITIAL_PRODUCTS.forEach(async (prod) => {
-          try {
-            await setDoc(doc(db, 'products', prod.id), prod);
-          } catch (e) {
-            console.warn("Product self-seeding skipped:", e);
-          }
-        });
-      }
-    }, (error) => {
-      console.warn("Products listener failed, fallback to local seeds. Details:", error.message);
-      const cached = localStorage.getItem('cached_products');
-      if (cached) {
-        try {
-          setProducts(JSON.parse(cached));
-        } catch (e) {
-          setProducts(INITIAL_PRODUCTS);
-        }
-      } else {
-        setProducts(INITIAL_PRODUCTS);
-      }
-    });
-
-    const unsubRequests = onSnapshot(collection(db, 'requests'), (snapshot) => {
-      const fetchedRequests: CustomerRequest[] = [];
-      snapshot.forEach((docSnap) => {
-        fetchedRequests.push(docSnap.data() as CustomerRequest);
-      });
-      setRequests(fetchedRequests);
-      localStorage.setItem('cached_requests', JSON.stringify(fetchedRequests));
-    }, (error) => {
-      console.warn("Requests listener failed, waiting for auth. Details:", error.message);
-      const cached = localStorage.getItem('cached_requests');
-      if (cached) {
-        try {
-          setRequests(JSON.parse(cached));
-        } catch (e) {
-          setRequests(INITIAL_REQUESTS);
-        }
-      } else {
-        setRequests(INITIAL_REQUESTS);
-      }
-    });
-
-    return () => {
-      unsubProducts();
-      unsubRequests();
-    };
-  }, [adminAuthenticated]);
-
-  // 3. Auto-seed Empty Database when Admin authenticates to Real Connection
-  useEffect(() => {
-    if (!adminAuthenticated || auth.currentUser?.email !== ADMIN_EMAIL) return;
-
-    const checkAndSeed = async () => {
-      try {
-        const prodSnap = await getDocs(collection(db, 'products'));
-        if (prodSnap.empty) {
-          triggerToast('Empty cloud database. Seeding master styles into Firestore...', 'info');
-          for (const prod of INITIAL_PRODUCTS) {
-            await setDoc(doc(db, 'products', prod.id), prod);
-          }
-          triggerToast('Firestore Database successfully initialized!', 'success');
-        }
-
-        const reqSnap = await getDocs(collection(db, 'requests'));
-        if (reqSnap.empty) {
-          for (const req of INITIAL_REQUESTS) {
-            await setDoc(doc(db, 'requests', req.id), req);
-          }
-        }
-      } catch (err) {
-        console.warn('Real Database seeding check skipped or non-admin mode:', err);
-      }
-    };
-    checkAndSeed();
-  }, [adminAuthenticated]);
 
   const triggerToast = (message: string, type: 'success' | 'info' = 'success') => {
     setUiNotification({ message, type });
@@ -273,11 +216,18 @@ export default function App() {
     localStorage.setItem('cached_requests', JSON.stringify(nextRequests));
 
     try {
-      await setDoc(doc(db, 'requests', id), request);
+      const response = await fetch('/api/requests', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(request)
+      });
+      if (!response.ok) throw new Error('Unsuccessful status returned by server');
       triggerToast(`Thanks ${newReq.customerName}! Saved for verification.`);
-    } catch (e) {
-      console.warn("Direct Firestore request write failed, fallback successfully recorded in client ledger.");
-      triggerToast(`Thanks ${newReq.customerName}! Saved to offline ledger.`, 'info');
+    } catch (e: any) {
+      console.warn("Server-side write bypassed: fallback offline ledger active. Error:", e);
+      triggerToast(`Thanks ${newReq.customerName}! Saved to offline ledger (Cloud Sync Status: Offline).`, 'info');
     }
   };
 
@@ -309,12 +259,15 @@ export default function App() {
     localStorage.setItem('cached_products', JSON.stringify(updatedProducts));
 
     try {
-      await updateDoc(doc(db, 'products', productId), {
-        likes: nextLikesCount
+      const response = await fetch(`/api/products/${productId}/like`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ likes: nextLikesCount })
       });
+      if (!response.ok) throw new Error('Unsuccessful like write');
     } catch (e) {
-      // If permission is denied because they are a non-admin, Firestore rules permit
-      // public updates ONLY on the 'likes' attribute. Let's process or handle failures.
       console.warn("Failed syncing likes count directly, likely offline or permission limit. Fallback locally.");
     }
   };
@@ -330,32 +283,53 @@ export default function App() {
     };
 
     try {
-      await setDoc(doc(db, 'products', id), product);
+      const response = await fetch('/api/products', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(product)
+      });
+      if (!response.ok) throw new Error('Style rejected by server');
       triggerToast(`Created style "${newProd.name}" successfully!`);
-    } catch (e) {
-      handleFirestoreError(e, OperationType.WRITE, `products/${id}`);
+      fetchAllData();
+    } catch (e: any) {
+      console.warn("Error adding product style:", e);
+      triggerToast(`Failed to add style over server endpoint.`, 'info');
     }
   };
 
   // 4. Admin toggles if an item is listed or unlisted
   const handleToggleProductStatus = async (productId: string, newStatus: 'listed' | 'unlisted') => {
     try {
-      await updateDoc(doc(db, 'products', productId), {
-        status: newStatus
+      const response = await fetch(`/api/products/${productId}/status`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ status: newStatus })
       });
+      if (!response.ok) throw new Error('Status rejected by server');
       triggerToast(`Product listing status set to ${newStatus}`);
+      fetchAllData();
     } catch (e) {
-      handleFirestoreError(e, OperationType.UPDATE, `products/${productId}`);
+      console.warn("Error updating product status:", e);
+      triggerToast(`Failed to update listing status over server.`, 'info');
     }
   };
 
   // 5. Admin completely deletes product from inventory database
   const handleDeleteProduct = async (productId: string) => {
     try {
-      await deleteDoc(doc(db, 'products', productId));
+      const response = await fetch(`/api/products/${productId}`, {
+        method: 'DELETE'
+      });
+      if (!response.ok) throw new Error('Style delete rejected by server');
       triggerToast('Product style fully deleted from inventory ledger.');
+      fetchAllData();
     } catch (e) {
-      handleFirestoreError(e, OperationType.DELETE, `products/${productId}`);
+      console.warn("Error deleting product:", e);
+      triggerToast(`Failed to delete product style over server.`, 'info');
     }
   };
 
@@ -370,10 +344,16 @@ export default function App() {
     localStorage.setItem('cached_requests', JSON.stringify(nextRequests));
 
     try {
-      await updateDoc(doc(db, 'requests', requestId), {
-        status: newStatus
+      const response = await fetch(`/api/requests/${requestId}/status`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ status: newStatus })
       });
+      if (!response.ok) throw new Error('Request status rejected by server');
       triggerToast(`Order for ${targetRequest.customerName} marked ${newStatus}`);
+      fetchAllData();
     } catch (e) {
       console.warn("Direct requests state sync updated locally/offline.");
       triggerToast(`Order status updated.`, 'success');
@@ -391,8 +371,12 @@ export default function App() {
     localStorage.setItem('cached_requests', JSON.stringify(nextRequests));
 
     try {
-      await deleteDoc(doc(db, 'requests', requestId));
+      const response = await fetch(`/api/requests/${requestId}`, {
+        method: 'DELETE'
+      });
+      if (!response.ok) throw new Error('Request delete rejected by server');
       triggerToast(`Deleted request from collections stream`);
+      fetchAllData();
     } catch (e) {
       console.warn("Direct request delete state synced locally/offline.");
       triggerToast(`Deleted request successfully.`);
