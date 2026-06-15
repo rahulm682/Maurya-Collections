@@ -126,14 +126,8 @@ export default function App() {
     }
   };
 
-  // 1. Initial State Sync & Auth Gate Listening
+  // 1. Auth Gate Listening & Local Storage Static Sync (runs once)
   useEffect(() => {
-    // Sync initial datasets
-    fetchAllData();
-
-    // Set real-time sync via automatic REST polling every 4 seconds to solve multi-browser state sync
-    const syncTimer = setInterval(fetchAllData, 4000);
-
     const unsubAuth = onAuthStateChanged(auth, async (user) => {
       if (user && user.email === ADMIN_EMAIL) {
         setAdminAuthenticated(true);
@@ -173,9 +167,21 @@ export default function App() {
 
     return () => {
       unsubAuth();
-      clearInterval(syncTimer);
     };
   }, []);
+
+  // 2. Real-time background backend synchronization (depends on adminAuthenticated state to fetch requests)
+  useEffect(() => {
+    // Sync initial datasets
+    fetchAllData();
+
+    // Set real-time sync via automatic REST polling every 6 seconds to solve multi-browser state sync
+    const syncTimer = setInterval(fetchAllData, 6000);
+
+    return () => {
+      clearInterval(syncTimer);
+    };
+  }, [adminAuthenticated]);
 
   const triggerToast = (message: string, type: 'success' | 'info' = 'success') => {
     setUiNotification({ message, type });
