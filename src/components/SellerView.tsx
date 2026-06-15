@@ -94,31 +94,34 @@ export default function SellerView({
     // 1. Village filter
     if (selectedVillageFilter !== 'All') {
       result = result.filter(
-        (r) => r.village.toLowerCase() === selectedVillageFilter.toLowerCase()
+        (r) => (r.village || '').toLowerCase() === (selectedVillageFilter || '').toLowerCase()
       );
     }
 
     // 2. Status filter
     if (selectedRequestStatusFilter !== 'All') {
       result = result.filter(
-        (r) => r.status.toLowerCase() === selectedRequestStatusFilter.toLowerCase()
+        (r) => (r.status || '').toLowerCase() === (selectedRequestStatusFilter || '').toLowerCase()
       );
     }
 
     // 3. Sorting
     result.sort((a, b) => {
+      if (!a || !b) return 0;
       if (requestsSortBy === 'customerName') {
-        return a.customerName.localeCompare(b.customerName);
+        const nameA = a.customerName || '';
+        const nameB = b.customerName || '';
+        return nameA.localeCompare(nameB);
       }
       
       // Extract timestamps if present in IDs format 'req-timestamp'
-      const timeVal = (idStr: string, dateStr: string) => {
-        if (idStr.startsWith('req-')) {
+      const timeVal = (idStr: string | undefined | null, dateStr: string | undefined | null) => {
+        if (idStr && typeof idStr === 'string' && idStr.startsWith('req-')) {
           const parts = idStr.split('-');
           const num = parseInt(parts[parts.length - 1]);
           if (!isNaN(num)) return num;
         }
-        return new Date(dateStr).getTime() || 0;
+        return (dateStr ? new Date(dateStr).getTime() : 0) || 0;
       };
 
       const timeA = timeVal(a.id, a.dateRequested);
@@ -139,14 +142,14 @@ export default function SellerView({
 
   // Combined product catalog search, status filter, and dynamic sorting
   const filteredProductsList = useMemo(() => {
-    const q = productSearch.toLowerCase().trim();
+    const q = (productSearch || '').toLowerCase().trim();
     // 1. Search text filter
     let list = products.filter((p) => {
       return (
-        p.name.toLowerCase().includes(q) ||
-        p.category.toLowerCase().includes(q) ||
-        p.gender.toLowerCase().includes(q) ||
-        p.ageGroup.toLowerCase().includes(q)
+        (p.name || '').toLowerCase().includes(q) ||
+        (p.category || '').toLowerCase().includes(q) ||
+        (p.gender || '').toLowerCase().includes(q) ||
+        (p.ageGroup || '').toLowerCase().includes(q)
       );
     });
 
@@ -161,7 +164,7 @@ export default function SellerView({
     // 3. Compute popularity stats
     const listWithStats = list.map((p) => {
       const matchRequests = requests.filter((r) => r.productId === p.id);
-      const uniqueVils = Array.from(new Set(matchRequests.map((r) => r.village.trim().toLowerCase())));
+      const uniqueVils = Array.from(new Set(matchRequests.map((r) => ((r.village || '').trim().toLowerCase()))));
       return {
         ...p,
         totalRequests: matchRequests.length,
@@ -608,7 +611,7 @@ export default function SellerView({
 
           <div className="space-y-3 pt-2">
             {villages.map((v) => {
-              const count = requests.filter(r => r.village.toLowerCase() === v.name.toLowerCase()).length;
+              const count = requests.filter(r => (r.village || '').toLowerCase() === (v.name || '').toLowerCase()).length;
               return (
                 <div key={v.id} className="p-4 border rounded-none border-zinc-150 bg-zinc-50/50 flex items-center justify-between hover:bg-zinc-50 transition-colors">
                   <div>

@@ -48,7 +48,7 @@ export default function ProductDetailsModal({
   // Derived Admin stats
   const productRequests = requests.filter(r => r.productId === product.id);
   const activeRequestsCount = productRequests.length;
-  const uniqueVillages = Array.from(new Set(productRequests.map(r => r.village.trim().toLowerCase()))).length;
+  const uniqueVillages = Array.from(new Set(productRequests.map(r => (r.village || '').trim().toLowerCase()))).length;
 
   // Make absolute deep-link URL for sharing using the query parameter structure
   const getShareUrl = () => {

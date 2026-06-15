@@ -1,206 +1,213 @@
 import express from 'express';
 import path from 'path';
-import fs from 'fs';
 import { createServer as createViteServer } from 'vite';
-import { initializeApp } from 'firebase/app';
-import { 
-  getFirestore, 
-  collection, 
-  getDocs, 
-  doc, 
-  setDoc, 
-  updateDoc, 
-  deleteDoc,
-  query,
-  limit
-} from 'firebase/firestore';
-import { INITIAL_PRODUCTS, INITIAL_REQUESTS } from './src/data/mockData';
+
+// Load static seed values in case the Firestore database is empty
+import { INITIAL_PRODUCTS, INITIAL_REQUESTS } from './src/data/mockData.ts';
+
+import { PORT, ADMIN_EMAIL } from './server/config.ts';
+import { requireAdmin } from './server/auth.ts';
+import { listFirestoreRest, callFirestoreRest } from './server/client.ts';
+
+const app = express();
+app.use(express.json());
+
+// -------------------------------------------------------------------------
+// BACKEND API ENDPOINTS
+// -------------------------------------------------------------------------
+
+// Health API
+app.get('/api/health', (req, res) => {
+  res.json({ status: 'ok', admin: ADMIN_EMAIL });
+});
+
+// 1. GET Products List (Public Read)
+app.get('/api/products', async (req, res) => {
+  try {
+    const products = await listFirestoreRest('products', null);
+    if (!products || products.length === 0) {
+      console.log("Firestore products list is empty. Seeding INITIAL_PRODUCTS into cloud catalog...");
+      for (const prod of INITIAL_PRODUCTS) {
+        await callFirestoreRest('products', prod.id, 'PATCH', prod, null);
+      }
+      return res.json(INITIAL_PRODUCTS);
+    }
+    res.json(products);
+  } catch (err: any) {
+    console.error("Express /api/products error:", err.message);
+    res.status(500).json({ error: err.message || "Failed to load products" });
+  }
+});
+
+// 2. Add New Product (Admin Only)
+app.post('/api/products', requireAdmin, async (req, res) => {
+  try {
+    const token = (req as any).adminToken;
+    const incomingProd = req.body;
+    const docId = incomingProd.id || `p-${Date.now()}`;
+    const product = {
+      ...incomingProd,
+      id: docId,
+      likes: incomingProd.likes || 0,
+      status: incomingProd.status || 'listed'
+    };
+
+    const result = await callFirestoreRest('products', docId, 'PATCH', product, token);
+    res.status(201).json(product);
+  } catch (err: any) {
+    console.error("Express /api/products create error:", err.message);
+    res.status(500).json({ error: err.message || "Failed to create product" });
+  }
+});
+
+// 3. Update Product details (Admin Only)
+app.put('/api/products/:productId', requireAdmin, async (req, res) => {
+  try {
+    const token = (req as any).adminToken;
+    const { productId } = req.params;
+    const product = req.body;
+
+    await callFirestoreRest('products', productId, 'PATCH', product, token);
+    res.json(product);
+  } catch (err: any) {
+    console.error("Express /api/products update error:", err.message);
+    res.status(500).json({ error: err.message || "Failed to update product" });
+  }
+});
+
+// 4. Delete Product Style with Cascade deletion of related customer requests (Admin Only)
+app.delete('/api/products/:productId', requireAdmin, async (req, res) => {
+  try {
+    const token = (req as any).adminToken;
+    const { productId } = req.params;
+
+    // First delete the main product document securely
+    await callFirestoreRest('products', productId, 'DELETE', null, token);
+
+    // Fetch related requests and execute cascade deletions
+    let deletedRequestsCount = 0;
+    try {
+      const allRequests = await listFirestoreRest('requests', token);
+      const relatedRequests = allRequests.filter((r: any) => r.productId === productId);
+      if (relatedRequests.length > 0) {
+        await Promise.all(relatedRequests.map(r => 
+          callFirestoreRest('requests', r.id, 'DELETE', null, token)
+        ));
+        deletedRequestsCount = relatedRequests.length;
+        console.log(`Cascade deleted ${deletedRequestsCount} requests related to product ${productId}.`);
+      }
+    } catch (innerErr) {
+      console.warn("Cascade requests cleanup encountered error:", innerErr);
+    }
+
+    res.json({ success: true, deletedRequestsCount });
+  } catch (err: any) {
+    console.error("Express /api/products delete error:", err.message);
+    res.status(500).json({ error: err.message || "Failed to delete product" });
+  }
+});
+
+// 5. Update Product likes/interest indicators (Public Write)
+app.post('/api/products/:productId/like', async (req, res) => {
+  try {
+    const { productId } = req.params;
+    const { likes } = req.body;
+
+    if (typeof likes !== 'number') {
+      return res.status(400).json({ error: "Likes value must be a valid number" });
+    }
+
+    // We can use the PATCH method with updateMask to securely update ONLY the likes field.
+    await callFirestoreRest('products', productId, 'PATCH', { likes }, null, ['likes']);
+    res.json({ success: true, likes });
+  } catch (err: any) {
+    console.error("Express likes increment error:", err.message);
+    res.status(500).json({ error: err.message || "Failed to sync likes indication" });
+  }
+});
+
+// 6. List Customer Requests (Admin Only)
+app.get('/api/requests', requireAdmin, async (req, res) => {
+  try {
+    const token = (req as any).adminToken;
+    
+    const requests = await listFirestoreRest('requests', token);
+    
+    if (!requests || requests.length === 0) {
+      console.log("Firestore requests ledger is empty. Seeding INITIAL_REQUESTS into cloud tracker...");
+      for (const reqObj of INITIAL_REQUESTS) {
+        await callFirestoreRest('requests', reqObj.id, 'PATCH', reqObj, token);
+      }
+      return res.json(INITIAL_REQUESTS);
+    }
+    res.json(requests);
+  } catch (err: any) {
+    console.error("Express /api/requests read error:", err.message);
+    res.status(500).json({ error: err.message || "Failed to load requests ledger" });
+  }
+});
+
+// 7. Create Customer Request (Public Submit)
+app.post('/api/requests', async (req, res) => {
+  try {
+    const incomingReq = req.body;
+    const docId = incomingReq.id || `req-${Date.now()}`;
+    const request = {
+      ...incomingReq,
+      id: docId,
+      status: incomingReq.status || 'Pending'
+    };
+
+    await callFirestoreRest('requests', docId, 'PATCH', request, null);
+    res.status(201).json(request);
+  } catch (err: any) {
+    console.error("Express request submit error:", err.message);
+    res.status(500).json({ error: err.message || "Failed to submit customer request" });
+  }
+});
+
+// 8. Update Customer Request Status (Admin Only)
+app.post('/api/requests/:requestId/update-request-status', requireAdmin, async (req, res) => {
+  try {
+    const token = (req as any).adminToken;
+    const { requestId } = req.params;
+    const { status } = req.body;
+
+    if (!status) {
+      return res.status(400).json({ error: "Status field is required" });
+    }
+
+    await callFirestoreRest('requests', requestId, 'PATCH', { status }, token, ['status']);
+    res.json({ success: true, status });
+  } catch (err: any) {
+    console.error("Express /api/requests status update error:", err.message);
+    res.status(500).json({ error: err.message || "Failed to update status" });
+  }
+});
+
+// 9. Delete Customer Request (Admin Only)
+app.delete('/api/requests/:requestId', requireAdmin, async (req, res) => {
+  try {
+    const token = (req as any).adminToken;
+    const { requestId } = req.params;
+
+    await callFirestoreRest('requests', requestId, 'DELETE', null, token);
+    res.json({ success: true });
+  } catch (err: any) {
+    console.error("Express /api/requests delete error:", err.message);
+    res.status(500).json({ error: err.message || "Failed to delete request" });
+  }
+});
+
+// -------------------------------------------------------------------------
+// VITE DEV SERVER / PRODUCTION ASSET MANAGEMENT MIDDLEWARE
+// -------------------------------------------------------------------------
 
 async function startServer() {
-  const app = express();
-  const PORT = 3000;
-
-  app.use(express.json({ limit: '50mb' }));
-  app.use(express.urlencoded({ limit: '50mb', extended: true }));
-
-  // Load Firebase Config of the Applet
-  const configPath = path.join(process.cwd(), 'firebase-applet-config.json');
-  const firebaseConfig = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-
-  // Initialize Firebase using Client Web SDK
-  console.log(`Initializing Cloud Firebase Web SDK with Project: ${firebaseConfig.projectId}, Database ID: ${firebaseConfig.firestoreDatabaseId}`);
-  const firebaseApp = initializeApp(firebaseConfig);
-  const db = getFirestore(firebaseApp, firebaseConfig.firestoreDatabaseId);
-
-  // Auto-seed empty database helper on boot using Web SDK
-  try {
-    const productsCol = collection(db, 'products');
-    const prodSnap = await getDocs(query(productsCol, limit(1)));
-    if (prodSnap.empty) {
-      console.log('Firestore empty. Auto-seeding default products...');
-      for (const prod of INITIAL_PRODUCTS) {
-        await setDoc(doc(db, 'products', prod.id), prod);
-      }
-      console.log('Products auto-seeding completed!');
-    } else {
-      console.log('Products collection already seeded.');
-    }
-
-    const requestsCol = collection(db, 'requests');
-    const reqSnap = await getDocs(query(requestsCol, limit(1)));
-    if (reqSnap.empty) {
-      console.log('Firestore empty. Auto-seeding default requests...');
-      for (const req of INITIAL_REQUESTS) {
-        await setDoc(doc(db, 'requests', req.id), req);
-      }
-      console.log('Requests auto-seeding completed!');
-    } else {
-      console.log('Requests collection already seeded.');
-    }
-  } catch (err) {
-    console.warn('Auto-seeding skipped/warned:', err);
-  }
-
-  // 1. GET ALL PRODUCTS
-  app.get('/api/products', async (req, res) => {
-    try {
-      const snapshot = await getDocs(collection(db, 'products'));
-      const fetchedProducts: any[] = [];
-      snapshot.forEach((docSnap) => {
-        fetchedProducts.push(docSnap.data());
-      });
-      if (fetchedProducts.length === 0) {
-        return res.json(INITIAL_PRODUCTS);
-      }
-      res.json(fetchedProducts);
-    } catch (e: any) {
-      console.error('Error fetching products:', e);
-      res.status(500).json({ error: e.message || 'Error fetching products' });
-    }
-  });
-
-  // 2. GET ALL RESERVATION REQUESTS
-  app.get('/api/requests', async (req, res) => {
-    try {
-      const snapshot = await getDocs(collection(db, 'requests'));
-      const fetchedRequests: any[] = [];
-      snapshot.forEach((docSnap) => {
-        fetchedRequests.push(docSnap.data());
-      });
-      res.json(fetchedRequests);
-    } catch (e: any) {
-      console.error('Error fetching requests:', e);
-      res.status(500).json({ error: e.message || 'Error fetching requests' });
-    }
-  });
-
-  // 3. SUBMIT A NEW DEPOSIT RESERVATION
-  app.post('/api/requests', async (req, res) => {
-    try {
-      const newReq = req.body;
-      if (!newReq || !newReq.id) {
-        return res.status(400).json({ error: 'Missing request body or ID.' });
-      }
-      await setDoc(doc(db, 'requests', newReq.id), newReq);
-      res.json({ success: true, request: newReq });
-    } catch (e: any) {
-      console.error('Error saving request:', e);
-      res.status(500).json({ error: e.message || 'Error saving request' });
-    }
-  });
-
-  // 4. INCREMENT or DECREMENT WISHLIST LIKES COUNT
-  app.post('/api/products/:id/like', async (req, res) => {
-    try {
-      const { id } = req.params;
-      const { likes } = req.body;
-      if (likes === undefined || typeof likes !== 'number') {
-        return res.status(400).json({ error: 'Likes count must be a number' });
-      }
-      await updateDoc(doc(db, 'products', id), { likes });
-      res.json({ success: true, id, likes });
-    } catch (e: any) {
-      console.error('Error updating likes:', e);
-      res.status(500).json({ error: e.message || 'Error updating likes' });
-    }
-  });
-
-  // 5. UPLOAD NEW CLOTHING STYLE
-  app.post('/api/products', async (req, res) => {
-    try {
-      const product = req.body;
-      if (!product || !product.id) {
-        return res.status(400).json({ error: 'Missing product payload or id.' });
-      }
-      await setDoc(doc(db, 'products', product.id), product);
-      res.json({ success: true, product });
-    } catch (e: any) {
-      console.error('Error saving product style:', e);
-      res.status(500).json({ error: e.message || 'Error saving product style' });
-    }
-  });
-
-  // 6. TOGGLE PRODUCT LISTING (Listed/Unlisted)
-  app.post('/api/products/:id/status', async (req, res) => {
-    try {
-      const { id } = req.params;
-      const { status } = req.body;
-      if (!status) {
-        return res.status(400).json({ error: 'Missing status attribute' });
-      }
-      await updateDoc(doc(db, 'products', id), { status });
-      res.json({ success: true, id, status });
-    } catch (e: any) {
-      console.error('Error updating listing status:', e);
-      res.status(500).json({ error: e.message || 'Error updating listing status' });
-    }
-  });
-
-  // 7. REMOVE PRODUCT STYLE COMPLETELY FROM CATALOG
-  app.delete('/api/products/:id', async (req, res) => {
-    try {
-      const { id } = req.params;
-      await deleteDoc(doc(db, 'products', id));
-      res.json({ success: true, id });
-    } catch (e: any) {
-      console.error('Error removing product:', e);
-      res.status(500).json({ error: e.message || 'Error removing product' });
-    }
-  });
-
-  // 8. UPDATE RESERVATION PIPELINE STATUS
-  app.post('/api/requests/:id/status', async (req, res) => {
-    try {
-      const { id } = req.params;
-      const { status } = req.body;
-      if (!status) {
-        return res.status(400).json({ error: 'Missing pipeline status attribute' });
-      }
-      await updateDoc(doc(db, 'requests', id), { status });
-      res.json({ success: true, id, status });
-    } catch (e: any) {
-      console.error('Error updating request status:', e);
-      res.status(500).json({ error: e.message || 'Error updating request status' });
-    }
-  });
-
-  // 9. PURGE RESERVATION ENTRY FROM LEDGER
-  app.delete('/api/requests/:id', async (req, res) => {
-    try {
-      const { id } = req.params;
-      await deleteDoc(doc(db, 'requests', id));
-      res.json({ success: true, id });
-    } catch (e: any) {
-      console.error('Error purging request:', e);
-      res.status(500).json({ error: e.message || 'Error purging request' });
-    }
-  });
-
-  // Vite Middleware for standard full-stack routing integration
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({
       server: { middlewareMode: true },
-      appType: 'spa',
+      appType: 'spa'
     });
     app.use(vite.middlewares);
   } else {
@@ -212,7 +219,7 @@ async function startServer() {
   }
 
   app.listen(PORT, '0.0.0.0', () => {
-    console.log(`Server is running at http://0.0.0.0:${PORT}`);
+    console.log(`Backend Server launched and listening on http://0.0.0.0:${PORT}`);
   });
 }
 

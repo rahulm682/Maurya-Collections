@@ -19,23 +19,34 @@ service cloud.firestore {
 
     // 1. PRODUCTS COLLECTION
     match /products/{productId} {
-      allow read: if true; // Publicly viewable by any guest user
-      allow create, delete: if isAdmin() && isValidId(productId); // Only Admin can create or delete products
-      
-      // Admin can update everything. Guest users can ONLY increment/decrement the "likes" count
-      allow update: if isValidId(productId) && (
-        isAdmin() || 
-        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likes'])
+      allow read: if true;
+      allow create, delete: if isAdmin() && isValidId(productId);
+      allow update: if (isAdmin() && isValidId(productId)) || (
+        isValidId(productId) &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likes']) &&
+        request.resource.data.likes is number &&
+        request.resource.data.likes >= 0
       );
     }
 
     // 2. REQUESTS COLLECTION
     match /requests/{requestId} {
-      // Guest customers can submit (create) new orders/requests
-      allow create: if isValidId(requestId);
+      // Public users can submit request forms
+      allow create: if isValidId(requestId) &&
+                    request.resource.data.id == requestId &&
+                    request.resource.data.customerName is string &&
+                    request.resource.data.customerName.size() <= 100 &&
+                    request.resource.data.phone is string &&
+                    request.resource.data.phone.size() <= 30 &&
+                    request.resource.data.email is string &&
+                    request.resource.data.email.size() <= 100 &&
+                    request.resource.data.village is string &&
+                    request.resource.data.village.size() <= 100 &&
+                    request.resource.data.productId is string &&
+                    request.resource.data.productId.size() <= 128;
       
-      // Only the authenticated Administrator can read, update or delete/purge reservation requests
-      allow read, update, delete: if isAdmin();
+      // Only authorized Admins can view sheets, update status of delivery or delete logs
+      allow read, update, delete: if isAdmin() && isValidId(requestId);
     }
   }
 }

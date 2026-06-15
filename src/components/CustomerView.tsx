@@ -59,6 +59,7 @@ export default function CustomerView({
   const [selectedAgeGroup, setSelectedAgeGroup] = useState<AgeGroup>('Kids (5-12)');
   const [notes, setNotes] = useState('');
   const [submitSuccess, setSubmitSuccess] = useState(false);
+  const [phoneError, setPhoneError] = useState('');
 
   // Unique categories helper
   const categories = useMemo(() => {
@@ -148,6 +149,7 @@ export default function CustomerView({
     setSelectedColor((product.colors || [])[0] || '');
     setSelectedAgeGroup(product.ageGroup); // Strict restriction! Customers can only fill for product's ageGroup
     setSubmitSuccess(false);
+    setPhoneError('');
   };
 
   const handleCloseModal = () => {
@@ -159,15 +161,33 @@ export default function CustomerView({
     setSelectedSize('');
     setSelectedColor('');
     setNotes('');
+    setPhoneError('');
   };
 
   const handleReserveSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!reservationProduct || !fullname || !phone || !villageInput) return;
 
+    // Sanitize user's input mobile number (strip non-numeric values like spaces, dashes, brackets etc.)
+    const digitsOnly = phone.replace(/[^0-9]/g, '');
+    let cleanPhone = digitsOnly;
+    
+    // Automatically strip India country code prefix (91) or a leading zero if added
+    if (digitsOnly.length === 12 && digitsOnly.startsWith('91')) {
+      cleanPhone = digitsOnly.substring(2);
+    } else if (digitsOnly.length === 11 && digitsOnly.startsWith('0')) {
+      cleanPhone = digitsOnly.substring(1);
+    }
+
+    if (cleanPhone.length !== 10) {
+      setPhoneError('Please enter a valid 10-digit mobile number.');
+      return;
+    }
+    setPhoneError('');
+
     onAddRequest({
       customerName: fullname.trim(),
-      phone: phone.trim(),
+      phone: cleanPhone,
       email: email.trim() || 'default@route.co',
       village: villageInput.trim(), // text input
       productId: reservationProduct.id,
@@ -308,12 +328,15 @@ export default function CustomerView({
                       id="reserve-phone"
                       required
                       placeholder="e.g. 9876543210"
-                      pattern="[0-9]{10}"
-                      title="10 Digit Phone Number"
                       value={phone}
                       onChange={(e) => setPhone(e.target.value)}
                       className="block w-full rounded-none border border-zinc-200 bg-zinc-50 py-2 px-3 text-xs text-zinc-900 placeholder-zinc-350 focus:bg-white focus:ring-1 focus:ring-zinc-900 focus:outline-none transition-all font-mono"
                     />
+                    {phoneError && (
+                      <p className="text-[10px] text-red-600 font-mono mt-1 font-semibold">
+                        {phoneError}
+                      </p>
+                    )}
                   </div>
 
                   <div>
